@@ -173,6 +173,7 @@ def run_steam(data_dir):
     cmd = [
         MUVM,
         "--execute-pre", INIT_SCRIPT,
+        "--interactive",
         "--",
         "FEXBash",
         "-c",
