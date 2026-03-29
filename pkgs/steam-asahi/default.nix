@@ -25,21 +25,24 @@ let
     # PulseAudio shared memory workaround (muvm guest doesn't support SHM)
     echo enable-shm=no > /run/pulse.conf
 
-    # NixOS has no FHS paths — create them on writable tmpfs.
+    # NixOS has no FHS paths — create them on a writable overlay over /usr.
     # /bin/bash and /usr/bin/env are needed by scripts.
-    # /usr/lib is needed by bwrap (bubblewrap) for PressureVessel/steamwebhelper.
-    mkdir -p /run/fhs/bin /run/fhs/usr-bin /run/fhs/usr-lib /run/fhs/usr-lib64
+    # /usr/lib and /usr/lib64 are needed by bwrap for PressureVessel/steamwebhelper.
+    #
+    # Strategy: /usr is read-only (host mount), so we create a writable tmpfs
+    # overlay with all the FHS paths bwrap/Steam expect, then bind-mount over /usr.
+    mkdir -p /run/fhs/bin /run/fhs/usr
     cp -a /bin/* /run/fhs/bin/ 2>/dev/null || true
     ln -sf ${bash}/bin/bash /run/fhs/bin/bash
     ln -sf ${bash}/bin/sh /run/fhs/bin/sh
-    ln -sf ${coreutils}/bin/env /run/fhs/usr-bin/env
-    mount --bind /run/fhs/bin /bin
-    mount --bind /run/fhs/usr-bin /usr/bin
 
-    # bwrap needs /usr/lib and /usr/lib64 to exist for bind mounts
-    mkdir -p /usr/lib /usr/lib64
-    mount --bind /run/fhs/usr-lib /usr/lib
-    mount --bind /run/fhs/usr-lib64 /usr/lib64
+    # Copy existing /usr contents, then add missing FHS dirs
+    cp -a /usr/* /run/fhs/usr/ 2>/dev/null || true
+    mkdir -p /run/fhs/usr/bin /run/fhs/usr/lib /run/fhs/usr/lib64
+    ln -sf ${coreutils}/bin/env /run/fhs/usr/bin/env
+
+    mount --bind /run/fhs/bin /bin
+    mount --bind /run/fhs/usr /usr
 
     # FEX needs suid fusermount for rootfs overlay mounting
     mkdir -p /run/wrappers
