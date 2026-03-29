@@ -182,6 +182,12 @@ def run_steam(data_dir):
         # PressureVessel needs /nix for FEX thunks (GPU forwarding) and
         # /run/opengl-driver for native ARM64 Mesa/Vulkan drivers.
         "-e", "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver",
+        # Audio: muvm provides PulseAudio over vsock, not ALSA.
+        # FEX's ALSA thunk intercepts libasound and forwards to native ARM64
+        # ALSA which has no sound card in the VM, breaking ALSA-based audio.
+        # Force PulseAudio and tell it exactly where the server is.
+        "-e", "PULSE_SERVER=unix:/run/user/{uid}/pulse/native".format(uid=os.getuid()),
+        "-e", "SDL_AUDIODRIVER=pulseaudio",
         "--",
         "FEXBash",
         "-c",
