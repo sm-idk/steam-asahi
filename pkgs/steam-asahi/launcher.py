@@ -8,9 +8,9 @@ Adapted for NixOS with declarative Steam bootstrap packaging.
 SPDX-License-Identifier: MIT
 """
 
+import glob
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -34,6 +34,26 @@ STEAM_BOOTSTRAP = "@steamBootstrap@"
 
 # Steam launch args
 STEAM_ARGS = ["-cef-force-occlusion"]
+
+# Steam runtime libraries that conflict with FEX emulation.
+# These bundled libraries cause crashes (especially CEF/steamwebhelper).
+# Removing them forces Steam to use the rootfs versions instead.
+# See: https://wiki.fex-emu.com/index.php/Steam
+STEAM_RUNTIME_LIBS_TO_REMOVE = {
+    # 32-bit runtime libraries that conflict with FEX
+    "ubuntu12_32/steam-runtime/usr/lib/i386-linux-gnu": [
+        "libstdc++*",
+        "libxcb*",
+        "libgcc_s*",
+    ],
+    # 64-bit runtime libraries that cause CEF crashes
+    "ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu": [
+        "libz.so*",
+        "libfreetype.so.6*",
+        "libfontconfig.so.1*",
+        "libdbus-1.so*",
+    ],
+}
 
 
 def die(msg):
@@ -113,12 +133,43 @@ def ensure_steam_bootstrap(data_dir):
     print("Steam bootstrap ready.")
 
 
+def cleanup_steam_runtime_libs():
+    """Remove bundled Steam runtime libraries that conflict with FEX.
+
+    Steam bundles old versions of system libraries for compatibility.
+    Under FEX emulation, these cause crashes (especially CEF/Chromium).
+    Removing them forces Steam to use the FEX rootfs versions.
+    """
+    steam_dir = os.path.expanduser("~/.local/share/Steam")
+    if not os.path.isdir(steam_dir):
+        return
+
+    removed = 0
+    for rel_dir, patterns in STEAM_RUNTIME_LIBS_TO_REMOVE.items():
+        lib_dir = os.path.join(steam_dir, rel_dir)
+        if not os.path.isdir(lib_dir):
+            continue
+        for pattern in patterns:
+            for lib in glob.glob(os.path.join(lib_dir, pattern)):
+                try:
+                    os.unlink(lib)
+                    removed += 1
+                except OSError:
+                    pass
+
+    if removed > 0:
+        print(f"Removed {removed} conflicting Steam runtime libraries.")
+
+
 def run_steam(data_dir):
     """Launch Steam via muvm + FEXBash."""
     steam_args = " ".join(STEAM_ARGS + sys.argv[1:])
 
     env_flags = [
         "-e", "PULSE_CLIENTCONFIG=/run/pulse.conf",
+        # Bypass Steam's glibc verification checks
+        "-e", "STEAMOS=1",
+        "-e", "STEAM_RUNTIME=1",
         # Workaround for CEF/steamwebhelper crashes
         "-e", "STEAM_ENABLE_CEF_SHUTDOWN=0",
     ]
@@ -134,7 +185,7 @@ def run_steam(data_dir):
         f"{data_dir}/steam-launcher/bin_steam.sh {steam_args}",
     ]
 
-    print(f"Launching Steam via muvm + FEX...")
+    print("Launching Steam via muvm + FEX...")
     proc = subprocess.Popen(cmd)
     ret = proc.wait()
 
@@ -157,7 +208,10 @@ def main():
     data_dir = BaseDirectory.save_data_path(LAUNCHER_NAME)
     ensure_steam_bootstrap(data_dir)
 
-    # Step 3: Launch Steam
+    # Step 3: Clean up conflicting Steam runtime libraries
+    cleanup_steam_runtime_libs()
+
+    # Step 4: Launch Steam
     run_steam(data_dir)
 
 
