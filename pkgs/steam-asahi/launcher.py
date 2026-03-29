@@ -182,9 +182,6 @@ def run_steam(data_dir):
         # PressureVessel needs /nix for FEX thunks (GPU forwarding) and
         # /run/opengl-driver for native ARM64 Mesa/Vulkan drivers.
         "-e", "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver",
-        # PulseAudio shared memory doesn't work through virtio — tell clients
-        # to use the config that disables SHM (created by the init script).
-        "-e", "PULSE_CLIENTCONFIG=/run/pulse.conf",
         "--",
         "FEXBash",
         "-c",
@@ -210,7 +207,19 @@ def main():
     if not is_fex_rootfs_configured():
         die("FEX rootfs not configured. Run FEXRootFSFetcher manually.")
 
-    # Step 2: Ensure Steam bootstrap
+    # Step 2: Ensure PulseAudio config for muvm vsock audio
+    # SHM doesn't work through virtio. Create client.conf in $HOME so it's
+    # visible inside PressureVessel containers (unlike /run/pulse.conf which
+    # gets lost when PV creates its own /run tmpfs).
+    pulse_dir = os.path.expanduser("~/.config/pulse")
+    pulse_conf = os.path.join(pulse_dir, "client.conf")
+    if not os.path.isfile(pulse_conf):
+        os.makedirs(pulse_dir, exist_ok=True)
+        with open(pulse_conf, "w") as f:
+            f.write("enable-shm = no\n")
+        print("Created PulseAudio config (SHM disabled for muvm vsock).")
+
+    # Step 3: Ensure Steam bootstrap
     data_dir = BaseDirectory.save_data_path(LAUNCHER_NAME)
     ensure_steam_bootstrap(data_dir)
 
