@@ -10,7 +10,6 @@
   bash,
   coreutils,
   util-linux,
-  findutils,
   gnugrep,
   steam-unwrapped,
 }:
@@ -149,7 +148,6 @@ let
     name = "steam-asahi";
     runtimeInputs = [
       coreutils
-      findutils
       gnugrep
     ];
     text = ''
@@ -206,29 +204,6 @@ let
         cp -a ${steamBootstrap}/steam-launcher "$data_dir/"
         echo "ok" > "$marker"
         echo "Steam bootstrap ready."
-      fi
-
-      # Steam bundles old library versions for compatibility. Under FEX emulation,
-      # these cause crashes (especially CEF/Chromium). Removing them forces Steam
-      # to use the FEX rootfs versions instead.
-      # See: https://wiki.fex-emu.com/index.php/Steam
-      steam_dir="$HOME/.local/share/Steam"
-      if [[ -d "$steam_dir" ]]; then
-        removed=0
-        while IFS= read -r _; do
-          removed=$((removed + 1))
-        done < <(
-          find "$steam_dir/ubuntu12_32/steam-runtime/usr/lib/i386-linux-gnu" \
-            -maxdepth 1 \( -name "libstdc++*" -o -name "libxcb*" -o -name "libgcc_s*" \) \
-            -delete -print 2>/dev/null || true
-          find "$steam_dir/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu" \
-            -maxdepth 1 \( -name "libz.so*" -o -name "libfreetype.so.6*" \
-            -o -name "libfontconfig.so.1*" -o -name "libdbus-1.so*" \) \
-            -delete -print 2>/dev/null || true
-        )
-        if [[ "$removed" -gt 0 ]]; then
-          echo "Removed $removed conflicting Steam runtime libraries."
-        fi
       fi
 
       # --- Launch Steam via muvm + FEXBash ---
