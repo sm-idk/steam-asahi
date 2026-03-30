@@ -2,7 +2,7 @@
   description = "Steam on NixOS Asahi Linux (Apple Silicon) via muvm + FEX-Emu";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
   outputs =
@@ -96,50 +96,6 @@
             };
           };
 
-          fex =
-            let
-              fexSubmodules = [
-                "External/Vulkan-Headers"
-                "External/drm-headers"
-                "External/jemalloc_glibc"
-                "External/rpmalloc"
-                "External/unordered_dense"
-                "External/vixl"
-                "Source/Common/cpp-optparse"
-              ];
-            in
-            mkGitHubOverride prev.fex {
-              owner = "FEX-Emu";
-              repo = "FEX";
-              version = "2603";
-              tag = "FEX-2603";
-              hash = "sha256-rQOqziJ7IizJV3VmAWGo5s2xn2/xnp0sx3VfBtH1JK4=";
-              fetchArgs = {
-                leaveDotGit = true;
-                postFetch = ''
-                  cd $out
-                  git reset
-                  git submodule update --init --depth 1 \
-                    ${lib.concatStringsSep " \\\n              " fexSubmodules}
-                  find . -name .git -print0 | xargs -0 rm -rf
-                  rm -r External/vixl/src/aarch32 External/vixl/test
-                '';
-              };
-              extraAttrs = old: {
-                nativeBuildInputs = old.nativeBuildInputs ++ [ prev.git ];
-                doCheck = false; # jemalloc crashes on 16K page systems
-                # Fake git repo for version detection (git_version.h), then run upstream postPatch
-                postPatch = ''
-                  git init
-                  git config user.email "nix@localhost"
-                  git config user.name "Nix"
-                  git add .
-                  git commit -m "FEX-2603" --quiet
-                  git tag "FEX-2603"
-                ''
-                + old.postPatch;
-              };
-            };
         };
 
       pkgs = import nixpkgs {
