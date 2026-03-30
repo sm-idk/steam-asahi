@@ -85,17 +85,19 @@
               cargoDeps = prev.rustPlatform.importCargoLock {
                 lockFile = old.src + "/Cargo.lock";
               };
-              postPatch = ''
-                substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
-                  --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
-              ''
-              + lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
-                substituteInPlace crates/muvm/src/guest/mount.rs \
-                  --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
-              '';
+              postPatch =
+                ''
+                  substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
+                    --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
+                ''
+                + lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
+                  substituteInPlace crates/muvm/src/guest/mount.rs \
+                    --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
+                '';
             };
           };
 
+          steam-asahi = final.callPackage ./pkgs/steam-asahi { };
         };
 
       pkgs = import nixpkgs {
@@ -111,10 +113,14 @@
           libkrunfw
           libkrun
           muvm
-          fex
+          steam-asahi
           ;
-        steam-asahi = pkgs.callPackage ./pkgs/steam-asahi { };
         default = self.packages.${system}.steam-asahi;
+      };
+
+      nixosModules.default = {
+        nixpkgs.overlays = [ overlay ];
+        imports = [ ./modules/steam-asahi.nix ];
       };
 
       devShells.${system}.default = pkgs.mkShell {
