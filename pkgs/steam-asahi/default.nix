@@ -2,6 +2,8 @@
   lib,
   stdenvNoCC,
   writeShellApplication,
+  symlinkJoin,
+  makeDesktopItem,
   muvm,
   fex,
   fuse,
@@ -117,7 +119,7 @@ let
   # which is required for running under FEX's x86 bash
   steamBootstrap = stdenvNoCC.mkDerivation {
     name = "steam-bootstrap-${steam-unwrapped.version}";
-    src = steam-unwrapped.src;
+    inherit (steam-unwrapped) src;
     dontBuild = true;
     installPhase = ''
       runHook preInstall
@@ -127,115 +129,143 @@ let
       runHook postInstall
     '';
   };
-in
-writeShellApplication {
-  name = "steam-asahi";
-  runtimeInputs = [
-    coreutils
-    findutils
-    gnugrep
-  ];
-  text = ''
-    die() { echo "ERROR: $1" >&2; exit 1; }
-
-    [[ "$(id -u)" -ne 0 ]] || die "Do not run steam-asahi as root"
-
-    # --- Ensure FEX rootfs ---
-    fex_configured=false
-    fex_dir="$HOME/.fex-emu"
-
-    if [[ -d "$fex_dir/RootFS" ]]; then
-      for f in "$fex_dir/RootFS"/*; do
-        case "$f" in
-          *.ero | *.sqsh | *.img) fex_configured=true; break ;;
-        esac
-        [[ -d "$f" ]] && { fex_configured=true; break; }
-      done
-    fi
-
-    if [[ "$fex_configured" = false && -f "$fex_dir/Config.json" ]]; then
-      if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_dir/Config.json" 2>/dev/null; then
-        fex_configured=true
-      fi
-    fi
-
-    if [[ "$fex_configured" = false ]]; then
-      echo "FEX rootfs not found. Downloading Fedora 43 rootfs..."
-      echo "This is a one-time setup (~1.3GB download)."
-      echo
-      if ! ${lib.getExe' fex "FEXRootFSFetcher"} --assume-yes --distro-name=Fedora \
-          --distro-version=43 --distro-list-first --as-is; then
-        echo "Automatic download failed. Trying interactive mode..."
-        ${lib.getExe' fex "FEXRootFSFetcher"}
-      fi
-    fi
-
-    # SHM doesn't work through virtio. Create client.conf in $HOME so it's
-    # visible inside PressureVessel containers (unlike /run/pulse.conf which
-    # gets lost when PV creates its own /run tmpfs).
-    pulse_conf="$HOME/.config/pulse/client.conf"
-    if [[ ! -f "$pulse_conf" ]]; then
-      mkdir -p "''${pulse_conf%/*}"
-      echo "enable-shm = no" > "$pulse_conf"
-      echo "Created PulseAudio config (SHM disabled for muvm vsock)."
-    fi
-
-    data_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/steam-asahi"
-    marker="$data_dir/bootstrap-installed"
-
-    if [[ ! -f "$marker" || ! -f "$data_dir/steam-launcher/bin_steam.sh" ]]; then
-      echo "Setting up Steam bootstrap..."
-      mkdir -p "$data_dir"
-      cp -a ${steamBootstrap}/steam-launcher "$data_dir/"
-      echo "ok" > "$marker"
-      echo "Steam bootstrap ready."
-    fi
-
-    # Steam bundles old library versions for compatibility. Under FEX emulation,
-    # these cause crashes (especially CEF/Chromium). Removing them forces Steam
-    # to use the FEX rootfs versions instead.
-    # See: https://wiki.fex-emu.com/index.php/Steam
-    steam_dir="$HOME/.local/share/Steam"
-    if [[ -d "$steam_dir" ]]; then
-      removed=0
-      while IFS= read -r _; do
-        removed=$((removed + 1))
-      done < <(
-        find "$steam_dir/ubuntu12_32/steam-runtime/usr/lib/i386-linux-gnu" \
-          -maxdepth 1 \( -name "libstdc++*" -o -name "libxcb*" -o -name "libgcc_s*" \) \
-          -delete -print 2>/dev/null || true
-        find "$steam_dir/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu" \
-          -maxdepth 1 \( -name "libz.so*" -o -name "libfreetype.so.6*" \
-          -o -name "libfontconfig.so.1*" -o -name "libdbus-1.so*" \) \
-          -delete -print 2>/dev/null || true
-      )
-      if [[ "$removed" -gt 0 ]]; then
-        echo "Removed $removed conflicting Steam runtime libraries."
-      fi
-    fi
-
-    # --- Launch Steam via muvm + FEXBash ---
-    steam_args="-cef-force-occlusion''${*:+ $*}"
-    uid=$(id -u)
-
-    echo "Launching Steam via muvm + FEX..."
-    exec ${lib.getExe muvm} \
-      --execute-pre ${lib.getExe initScript} \
-      --interactive \
-      -e "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver" \
-      -- \
-      FEXBash -c "\
-        export PULSE_SERVER=unix:/run/user/$uid/pulse/native; \
-        export SDL_AUDIODRIVER=pulseaudio; \
-        export LC_ALL=C.UTF-8; \
-        export LANG=C.UTF-8; \
-        export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive; \
-        $data_dir/steam-launcher/bin_steam.sh $steam_args"
-  '';
-
-  meta = {
-    description = "Steam launcher for NixOS on Apple Silicon via muvm + FEX-Emu";
-    license = lib.licenses.mit;
-    platforms = [ "aarch64-linux" ];
+  desktopItem = makeDesktopItem {
+    name = "steam-asahi";
+    desktopName = "Steam (Asahi)";
+    comment = "Steam on Apple Silicon via muvm + FEX-Emu";
+    exec = "steam-asahi %U";
+    icon = "steam";
+    categories = [
+      "Game"
+      "Network"
+    ];
+    mimeTypes = [
+      "x-scheme-handler/steam"
+      "x-scheme-handler/steamlink"
+    ];
   };
+
+  launcher = writeShellApplication {
+    name = "steam-asahi";
+    runtimeInputs = [
+      coreutils
+      findutils
+      gnugrep
+    ];
+    text = ''
+      die() { echo "ERROR: $1" >&2; exit 1; }
+
+      [[ "$(id -u)" -ne 0 ]] || die "Do not run steam-asahi as root"
+
+      # --- Ensure FEX rootfs ---
+      fex_configured=false
+      fex_dir="$HOME/.fex-emu"
+
+      if [[ -d "$fex_dir/RootFS" ]]; then
+        for f in "$fex_dir/RootFS"/*; do
+          case "$f" in
+            *.ero | *.sqsh | *.img) fex_configured=true; break ;;
+          esac
+          [[ -d "$f" ]] && { fex_configured=true; break; }
+        done
+      fi
+
+      if [[ "$fex_configured" = false && -f "$fex_dir/Config.json" ]]; then
+        if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_dir/Config.json" 2>/dev/null; then
+          fex_configured=true
+        fi
+      fi
+
+      if [[ "$fex_configured" = false ]]; then
+        echo "FEX rootfs not found. Downloading Fedora 43 rootfs..."
+        echo "This is a one-time setup (~1.3GB download)."
+        echo
+        if ! ${lib.getExe' fex "FEXRootFSFetcher"} --assume-yes --distro-name=Fedora \
+            --distro-version=43 --distro-list-first --as-is; then
+          echo "Automatic download failed. Trying interactive mode..."
+          ${lib.getExe' fex "FEXRootFSFetcher"}
+        fi
+      fi
+
+      # SHM doesn't work through virtio. Create client.conf in $HOME so it's
+      # visible inside PressureVessel containers (unlike /run/pulse.conf which
+      # gets lost when PV creates its own /run tmpfs).
+      pulse_conf="$HOME/.config/pulse/client.conf"
+      if [[ ! -f "$pulse_conf" ]]; then
+        mkdir -p "''${pulse_conf%/*}"
+        echo "enable-shm = no" > "$pulse_conf"
+        echo "Created PulseAudio config (SHM disabled for muvm vsock)."
+      fi
+
+      data_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/steam-asahi"
+      marker="$data_dir/bootstrap-installed"
+
+      if [[ ! -f "$marker" || ! -f "$data_dir/steam-launcher/bin_steam.sh" ]]; then
+        echo "Setting up Steam bootstrap..."
+        mkdir -p "$data_dir"
+        cp -a ${steamBootstrap}/steam-launcher "$data_dir/"
+        echo "ok" > "$marker"
+        echo "Steam bootstrap ready."
+      fi
+
+      # Steam bundles old library versions for compatibility. Under FEX emulation,
+      # these cause crashes (especially CEF/Chromium). Removing them forces Steam
+      # to use the FEX rootfs versions instead.
+      # See: https://wiki.fex-emu.com/index.php/Steam
+      steam_dir="$HOME/.local/share/Steam"
+      if [[ -d "$steam_dir" ]]; then
+        removed=0
+        while IFS= read -r _; do
+          removed=$((removed + 1))
+        done < <(
+          find "$steam_dir/ubuntu12_32/steam-runtime/usr/lib/i386-linux-gnu" \
+            -maxdepth 1 \( -name "libstdc++*" -o -name "libxcb*" -o -name "libgcc_s*" \) \
+            -delete -print 2>/dev/null || true
+          find "$steam_dir/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu" \
+            -maxdepth 1 \( -name "libz.so*" -o -name "libfreetype.so.6*" \
+            -o -name "libfontconfig.so.1*" -o -name "libdbus-1.so*" \) \
+            -delete -print 2>/dev/null || true
+        )
+        if [[ "$removed" -gt 0 ]]; then
+          echo "Removed $removed conflicting Steam runtime libraries."
+        fi
+      fi
+
+      # --- Launch Steam via muvm + FEXBash ---
+      steam_args="-cef-force-occlusion''${*:+ $*}"
+      uid=$(id -u)
+
+      echo "Launching Steam via muvm + FEX..."
+      exec ${lib.getExe muvm} \
+        --execute-pre ${lib.getExe initScript} \
+        --interactive \
+        -e "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver" \
+        -- \
+        FEXBash -c "\
+          export PULSE_SERVER=unix:/run/user/$uid/pulse/native; \
+          export SDL_AUDIODRIVER=pulseaudio; \
+          export LC_ALL=C.UTF-8; \
+          export LANG=C.UTF-8; \
+          export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive; \
+          $data_dir/steam-launcher/bin_steam.sh $steam_args"
+    '';
+
+    meta = {
+      description = "Steam launcher for NixOS on Apple Silicon via muvm + FEX-Emu";
+      license = lib.licenses.mit;
+      platforms = [ "aarch64-linux" ];
+    };
+  };
+in
+symlinkJoin {
+  name = "steam-asahi";
+  paths = [
+    launcher
+    desktopItem
+  ];
+  postBuild = ''
+    mkdir -p "$out/share"
+    ln -s ${steam-unwrapped}/share/icons "$out/share/icons"
+  '';
+  inherit (launcher) meta;
 }
