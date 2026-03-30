@@ -66,7 +66,8 @@
           postPatch = ''
             substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
               --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
-          '' + prev.lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
+          ''
+          + prev.lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
             substituteInPlace crates/muvm/src/guest/mount.rs \
               --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
           '';
@@ -120,7 +121,8 @@
             git add .
             git commit -m "FEX-2603" --quiet
             git tag "FEX-2603"
-          '' + old.postPatch;
+          ''
+          + old.postPatch;
         });
       };
 
@@ -133,7 +135,12 @@
       overlays.default = overlay;
 
       packages.${system} = {
-        inherit (pkgs) libkrunfw libkrun muvm fex;
+        inherit (pkgs)
+          libkrunfw
+          libkrun
+          muvm
+          fex
+          ;
         steam-asahi = pkgs.callPackage ./pkgs/steam-asahi { };
         default = self.packages.${system}.steam-asahi;
       };

@@ -20,7 +20,12 @@ let
   };
 
   initScript = writeShellScript "steam-asahi-init" ''
-    export PATH="${lib.makeBinPath [ coreutils util-linux ]}:$PATH"
+    export PATH="${
+      lib.makeBinPath [
+        coreutils
+        util-linux
+      ]
+    }:$PATH"
 
     # PulseAudio shared memory workaround (muvm guest doesn't support SHM)
     echo enable-shm=no > /run/pulse.conf

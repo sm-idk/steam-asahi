@@ -91,14 +91,16 @@ def setup_fex_rootfs():
     print("This is a one-time setup (~1.3GB download).")
     print()
 
-    result = subprocess.run([
-        FEX_ROOTFS_FETCHER,
-        "--assume-yes",
-        "--distro-name=Fedora",
-        "--distro-version=43",
-        "--distro-list-first",
-        "--as-is",
-    ])
+    result = subprocess.run(
+        [
+            FEX_ROOTFS_FETCHER,
+            "--assume-yes",
+            "--distro-name=Fedora",
+            "--distro-version=43",
+            "--distro-list-first",
+            "--as-is",
+        ]
+    )
 
     if result.returncode != 0:
         print("Automatic download failed. Trying interactive mode...")
@@ -172,7 +174,8 @@ def run_steam(data_dir):
 
     cmd = [
         MUVM,
-        "--execute-pre", INIT_SCRIPT,
+        "--execute-pre",
+        INIT_SCRIPT,
         "--interactive",
         # PressureVessel (bwrap) creates a container for games. By default it
         # doesn't mount /nix, so FEX can't find its thunks (GPU library
@@ -181,7 +184,8 @@ def run_steam(data_dir):
         # /run/opengl-driver has the native ARM64 Mesa/Vulkan drivers.
         # PressureVessel needs /nix for FEX thunks (GPU forwarding) and
         # /run/opengl-driver for native ARM64 Mesa/Vulkan drivers.
-        "-e", "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver",
+        "-e",
+        "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver",
         "--",
         "FEXBash",
         "-c",
