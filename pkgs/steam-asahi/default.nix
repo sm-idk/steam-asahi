@@ -48,9 +48,6 @@ let
       util-linux
     ];
     text = ''
-      # PulseAudio shared memory workaround (muvm guest doesn't support SHM)
-      echo enable-shm=no > /run/pulse.conf
-
       # NixOS has no FHS paths — create them on a writable overlay over /usr
       # /bin/bash and /usr/bin/env are needed by scripts
       # /usr/lib and /usr/lib64 are needed by bwrap for PressureVessel/steamwebhelper
@@ -183,16 +180,6 @@ let
           echo "Automatic download failed. Trying interactive mode..."
           ${lib.getExe' fex "FEXRootFSFetcher"}
         fi
-      fi
-
-      # SHM doesn't work through virtio. Create client.conf in $HOME so it's
-      # visible inside PressureVessel containers (unlike /run/pulse.conf which
-      # gets lost when PV creates its own /run tmpfs).
-      pulse_conf="$HOME/.config/pulse/client.conf"
-      if [[ ! -f "$pulse_conf" ]]; then
-        mkdir -p "''${pulse_conf%/*}"
-        echo "enable-shm = no" > "$pulse_conf"
-        echo "Created PulseAudio config (SHM disabled for muvm vsock)."
       fi
 
       data_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/steam-asahi"
