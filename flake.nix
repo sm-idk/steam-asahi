@@ -85,15 +85,14 @@
               cargoDeps = prev.rustPlatform.importCargoLock {
                 lockFile = old.src + "/Cargo.lock";
               };
-              postPatch =
-                ''
-                  substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
-                    --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
-                ''
-                + lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
-                  substituteInPlace crates/muvm/src/guest/mount.rs \
-                    --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
-                '';
+              postPatch = ''
+                substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
+                  --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
+              ''
+              + lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
+                substituteInPlace crates/muvm/src/guest/mount.rs \
+                  --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
+              '';
             };
           };
 
@@ -131,7 +130,7 @@
         ];
 
         shellHook = ''
-          echo "asahi-steam dev shell"
+          echo "steam-asahi dev shell"
           echo "  muvm $(muvm --version 2>&1 || echo 'available')"
           echo "  FEXBash available: $(which FEXBash 2>/dev/null && echo yes || echo no)"
           echo ""
