@@ -12,6 +12,7 @@
   coreutils,
   util-linux,
   gnugrep,
+  pciutils,
   squashfuse,
   erofs-utils,
   steam-unwrapped,
@@ -49,6 +50,7 @@ let
     runtimeInputs = [
       coreutils
       util-linux
+      pciutils
     ];
     text = ''
       # NixOS has no FHS paths — create them on a writable overlay over /usr
@@ -66,6 +68,7 @@ let
       cp -a /usr/* /run/fhs/usr/ 2>/dev/null || true
       mkdir -p /run/fhs/usr/bin /run/fhs/usr/lib /run/fhs/usr/lib64
       ln -sf ${coreutils}/bin/env /run/fhs/usr/bin/env
+      ln -sf ${pciutils}/bin/lspci /run/fhs/usr/bin/lspci
 
       # PressureVessel Vulkan layer overrides dir (suppresses "Internal error" warnings)
       mkdir -p /run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/implicit_layer.d
