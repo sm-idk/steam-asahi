@@ -7,6 +7,7 @@
   muvm,
   fex,
   fuse,
+  fuse3,
   bash,
   coreutils,
   util-linux,
@@ -106,8 +107,9 @@ let
       mount -t tmpfs -o exec,suid tmpfs /run/wrappers
       mkdir -p /run/wrappers/bin
       cp ${lib.getExe' fuse "fusermount"} /run/wrappers/bin/fusermount
-      chown root:root /run/wrappers/bin/fusermount
-      chmod u=srx,g=x,o=x /run/wrappers/bin/fusermount
+      cp ${lib.getExe' fuse3 "fusermount3"} /run/wrappers/bin/fusermount3
+      chown root:root /run/wrappers/bin/fusermount /run/wrappers/bin/fusermount3
+      chmod u=srx,g=x,o=x /run/wrappers/bin/fusermount /run/wrappers/bin/fusermount3
     '';
   };
 
