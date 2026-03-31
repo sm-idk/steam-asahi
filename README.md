@@ -4,7 +4,8 @@ Nix flake to run Steam on NixOS Asahi Linux (Apple Silicon) via muvm + FEX-Emu.
 
 ## Warning
 
-**This project was primarily written by an LLM (AI). Review the code yourself before running it. Use at your own risk.**
+> [!WARNING]
+>  **This project was primarily written by an LLM (AI). Review the code yourself before running it. Use at your own risk.**
 
 The launcher performs several potentially dangerous operations at runtime:
 
@@ -19,11 +20,11 @@ The launcher performs several potentially dangerous operations at runtime:
 
 | Component | Version | Source |
 |-----------|---------|--------|
-| **libkrunfw** | 5.3.0 | [containers/libkrunfw](https://github.com/containers/libkrunfw) (kernel 6.12.76) |
-| **libkrun** | 1.17.4 | [containers/libkrun](https://github.com/containers/libkrun) |
-| **muvm** | 0.5.1 | [AsahiLinux/muvm](https://github.com/AsahiLinux/muvm) |
-| **FEX-Emu** | 2603 | [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX) taken directly from nixpkgs-unstable|
-| **Steam bootstrap** | 1.0.0.81 | [repo.steampowered.com](https://repo.steampowered.com/steam/archive/stable/) |
+| **libkrunfw** | 5.3.0 (kernel 6.12.76) | [containers/libkrunfw](https://github.com/containers/libkrunfw) Overlay, PR to upstream pending [#505042](https://github.com/NixOS/nixpkgs/pull/505042)|
+| **libkrun** | 1.17.4 | [containers/libkrun](https://github.com/containers/libkrun) Overlay, PR to upstream pending [#505042](https://github.com/NixOS/nixpkgs/pull/505042)|
+| **muvm** | 0.5.1 | [AsahiLinux/muvm](https://github.com/AsahiLinux/muvm) Overlay, PR to upstream pending [#505382](https://github.com/NixOS/nixpkgs/pull/505382) |
+| **FEX-Emu** | 2603 | [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX) taken directly from nixpkgs-unstable |
+| **Steam bootstrap** | 1.0.0.81 | taken directly from nixpkgs-unstable |
 
 All packages are built as overlays on top of nixpkgs-unstable.
 
@@ -35,7 +36,7 @@ nix develop # And then use the components provided by the flake like the `steam-
 
 You can also use it as a module
   
-```
+```nix
 {
   inputs = {
     steam-asahi.url = "github:sm-idk/steam-asahi";
