@@ -14,11 +14,9 @@ Nix flake to run Steam on NixOS Asahi Linux (Apple Silicon) via muvm + FEX-Emu.
 The launcher performs several potentially dangerous operations at runtime:
 
 - **Bind-mounts over `/bin`, `/usr`, and `/etc`** inside the muvm guest to create an FHS-compatible environment for Steam
-- **Sets suid root on `fusermount`** (copied to `/run/wrappers/bin/`) so FEX can mount its rootfs overlay
+- **Sets suid root on `fusermount` and `fusermount3`** (copied to `/run/wrappers/bin/`) so FEX can mount its rootfs overlay
 - **Downloads a ~1.3GB FEX rootfs** (Fedora 43) on first run via `FEXRootFSFetcher`
-- **Extracts a Steam bootstrap tarball** into `~/.local/share/steam-asahi/`
-- **Removes conflicting Steam runtime libraries** from `~/.local/share/Steam/` that conflict with FEX emulation
-- **Writes PulseAudio config** to `~/.config/pulse/client.conf`
+- **Installs Steam bootstrap files** into `~/.local/share/steam-asahi/`
 
 ## Components
 
