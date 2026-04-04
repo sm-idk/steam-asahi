@@ -48,33 +48,6 @@
             );
         in
         {
-          libkrunfw = mkGitHubOverride prev.libkrunfw {
-            owner = "containers";
-            repo = "libkrunfw";
-            version = "5.3.0";
-            hash = "sha256-fhG/bP1HzmhyU2N+wnr1074WEGsD9RdTUUBhYUFpWlA=";
-            extraAttrs = _: {
-              kernelSrc = prev.fetchurl {
-                url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.76.tar.xz";
-                hash = "sha256-u7Q+g0xG5r1JpcKPIuZ5qTdENATh9lMgTUskkp862JY=";
-              };
-            };
-          };
-
-          libkrun = mkGitHubOverride prev.libkrun {
-            owner = "containers";
-            repo = "libkrun";
-            version = "1.17.4";
-            hash = "sha256-Th4vCg3xHb6lbo26IDZES7tLOUAJTebQK2+h3xSYX7U=";
-            extraAttrs = old: {
-              cargoDeps = prev.rustPlatform.fetchCargoVendor {
-                inherit (old) src;
-                hash = "sha256-0xpAyNe1jF1OMtc7FXMsejqIv0xKc1ktEvm3rj/mVFU=";
-              };
-              buildInputs = old.buildInputs ++ [ prev.libcap_ng ];
-            };
-          };
-
           muvm = mkGitHubOverride prev.muvm {
             owner = "AsahiLinux";
             repo = "muvm";
