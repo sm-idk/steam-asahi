@@ -96,6 +96,39 @@
             };
           };
 
+          fex = mkGitHubOverride prev.fex {
+            owner = "FEX-Emu";
+            repo = "FEX";
+            version = "2604";
+            tag = "FEX-2604";
+            hash = "sha256-VPlw15vM3wowgba9Z95F/vRYJLaevtt8lJEgw4hYS8w=";
+            fetchArgs = {
+              leaveDotGit = true;
+              postFetch = ''
+                cd $out
+                git reset
+
+                git submodule update --init --depth 1 \
+                  External/Vulkan-Headers \
+                  External/drm-headers \
+                  External/jemalloc_glibc \
+                  External/rpmalloc \
+                  External/unordered_dense \
+                  External/vixl \
+                  Source/Common/cpp-optparse
+
+                find . -name .git -print0 | xargs -0 rm -rf
+
+                rm -r \
+                  External/vixl/src/aarch32 \
+                  External/vixl/test
+              '';
+            };
+            extraAttrs = _old: {
+              doCheck = false;
+            };
+          };
+
           steam-asahi = final.callPackage ./pkgs/steam-asahi { };
         };
 
@@ -112,6 +145,7 @@
           libkrunfw
           libkrun
           muvm
+          fex
           steam-asahi
           ;
         default = self.packages.${system}.steam-asahi;
