@@ -18,6 +18,7 @@
   steam-unwrapped,
   extraEnv ? {
     FEX_X87REDUCEDPRECISION = "1";
+    FEX_MULTIBLOCK = "0";
     PROTON_USE_WINED3D = "1";
   },
 }:

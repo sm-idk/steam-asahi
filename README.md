@@ -25,7 +25,7 @@ The launcher performs several potentially dangerous operations at runtime:
 | **libkrunfw** | 5.3.0 (kernel 6.12.76) | [containers/libkrunfw](https://github.com/containers/libkrunfw) PR upstreamed at [#505042](https://github.com/NixOS/nixpkgs/pull/505042)|
 | **libkrun** | 1.17.4 | [containers/libkrun](https://github.com/containers/libkrun) PR upstreamed [#505042](https://github.com/NixOS/nixpkgs/pull/505042)|
 | **muvm** | 0.5.1 | [AsahiLinux/muvm](https://github.com/AsahiLinux/muvm) Overlay, PR to upstream pending [#505382](https://github.com/NixOS/nixpkgs/pull/505382) |
-| **FEX-Emu** | 2603 | [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX) taken directly from nixpkgs-unstable |
+| **FEX-Emu** | 2604 | [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX) taken directly from nixpkgs-unstable |
 | **Steam bootstrap** | 1.0.0.81 | taken directly from nixpkgs-unstable |
 
 All packages are built as overlays on top of nixpkgs-unstable.

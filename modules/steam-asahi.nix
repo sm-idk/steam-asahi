@@ -23,6 +23,7 @@ in
       type = lib.types.attrsOf lib.types.str;
       default = {
         FEX_X87REDUCEDPRECISION = "1";
+        FEX_MULTIBLOCK = "0";
         PROTON_USE_WINED3D = "1";
       };
       description = "Extra environment variables passed to games inside the FEX/Steam environment.";
