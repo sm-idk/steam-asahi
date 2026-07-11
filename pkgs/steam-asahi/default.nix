@@ -1,3 +1,5 @@
+# Launcher fixes here are informed by ooonea's Codeberg fork:
+# https://codeberg.org/ooonea/steam-asahi
 {
   lib,
   stdenvNoCC,
@@ -15,17 +17,32 @@
   pciutils,
   squashfuse,
   erofs-utils,
+  yad,
+  pulseaudio,
+  lsb-release,
+  glibc,
   steam-unwrapped,
+  memoryMiB ? null,
   extraEnv ? {
-    FEX_X87REDUCEDPRECISION = "1";
+    # Conservative baseline only. Per-game performance/compatibility flags
+    # (PROTON_USE_WINED3D=1, FEX_X87REDUCEDPRECISION=1) belong in each game's
+    # Steam launch options because they can regress other titles.
     FEX_MULTIBLOCK = "0";
-    PROTON_USE_WINED3D = "1";
+    # steam.sh's ldd-based 32-bit glibc probe cannot see FEX's emulated 32-bit
+    # support and floods bogus "missing ... libc.so.6" warnings. These skip it.
+    STEAMOS = "1";
+    STEAM_RUNTIME = "1";
+    # Host Vulkan layers live in unusual NixOS/FEX paths and PressureVessel
+    # emits internal errors while trying to import them. ICD import still works;
+    # layers/overlays can be revisited once there is a cleaner provider model.
+    PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
   },
 }:
 
 let
-  extraEnvExports = lib.concatStringsSep " \\\n          "
-    (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v};") extraEnv);
+  extraEnvExports = lib.concatStringsSep " \\\n          " (
+    lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v};") extraEnv
+  );
 
   # NixOS /etc symlinks that bwrap can't follow — materialize as real files
   etcSymlinksToMaterialize = [
@@ -71,23 +88,62 @@ let
       cp -a /bin/* /run/fhs/bin/ 2>/dev/null || true
       ln -sf ${bash}/bin/bash /run/fhs/bin/bash
       ln -sf ${bash}/bin/sh /run/fhs/bin/sh
+      cat > /run/fhs/bin/lspci <<'EOF'
+      #!/bin/sh
+      # Apple Silicon systems normally have no PCI bus. Steam only uses lspci for
+      # optional diagnostics, so avoid noisy pciutils errors when there is no PCI.
+      if [ -d /sys/bus/pci/devices ]; then
+        for dev in /sys/bus/pci/devices/*; do
+          [ -e "$dev" ] && exec ${pciutils}/bin/lspci "$@"
+        done
+      fi
+      exit 0
+      EOF
+      chmod +x /run/fhs/bin/lspci
+      ln -sf ${lib.getExe' pulseaudio "pactl"} /run/fhs/bin/pactl
+      ln -sf ${lib.getExe lsb-release} /run/fhs/bin/lsb_release
+      # Steam sometimes shells out to zenity; yad is already in the closure and
+      # is compatible enough for Steam's simple dialogs.
+      ln -sf ${lib.getExe yad} /run/fhs/bin/zenity
 
       # Copy existing /usr contents, then add missing FHS dirs
       cp -a /usr/* /run/fhs/usr/ 2>/dev/null || true
       mkdir -p /run/fhs/usr/bin /run/fhs/usr/lib /run/fhs/usr/lib64
       ln -sf ${coreutils}/bin/env /run/fhs/usr/bin/env
-      ln -sf ${pciutils}/bin/lspci /run/fhs/usr/bin/lspci
+      ln -sf /run/fhs/bin/lspci /run/fhs/usr/bin/lspci
+      ln -sf ${lib.getExe' pulseaudio "pactl"} /run/fhs/usr/bin/pactl
+      ln -sf ${lib.getExe lsb-release} /run/fhs/usr/bin/lsb_release
+      # Steam sometimes shells out to zenity; yad is already in the closure and
+      # is compatible enough for Steam's simple dialogs.
+      ln -sf ${lib.getExe yad} /run/fhs/usr/bin/zenity
 
-      # Expose host Vulkan ICDs at standard FHS path for GPU discovery
-      mkdir -p /run/fhs/usr/share/vulkan
-      for d in /run/opengl-driver/share/vulkan/*/; do
-        [ -d "$d" ] && ln -sf "$d" /run/fhs/usr/share/vulkan/
+      # PressureVessel can generate missing UTF-8 locales, but it expects the
+      # glibc charmaps under /usr/share/i18n. NixOS normally keeps them in /nix.
+      mkdir -p /run/fhs/usr/share
+      rm -rf /run/fhs/usr/share/i18n
+      ln -s ${glibc}/share/i18n /run/fhs/usr/share/i18n
+
+      # Expose host Vulkan metadata at standard FHS paths for GPU discovery and
+      # mirror it into PressureVessel's override tree. PressureVessel rejects
+      # layers discovered in /usr/share/vulkan unless the matching JSON is also
+      # available through /usr/lib/pressure-vessel/overrides/share/vulkan.
+      mkdir -p /run/fhs/usr/share/vulkan /run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan
+      for subdir in icd.d explicit_layer.d implicit_layer.d; do
+        src="/run/opengl-driver/share/vulkan/$subdir"
+        [ -e "$src" ] || continue
+        rm -rf "/run/fhs/usr/share/vulkan/$subdir"
+        ln -s "$src" "/run/fhs/usr/share/vulkan/$subdir"
+        mkdir -p "/run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/$subdir"
+        for json in "$src"/*.json; do
+          [ -e "$json" ] && ln -sf "$json" "/run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/$subdir/"
+        done
       done
 
-      # PressureVessel Vulkan layer overrides dir and populate with Steam's layers
+      # Steam creates its overlay/fossilize layer JSONs in the user's XDG dir.
+      # Copy any existing ones so PressureVessel accepts them too.
       mkdir -p /run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/implicit_layer.d
       for layer in /home/*/.local/share/vulkan/implicit_layer.d/steam*.json; do
-        [ -f "$layer" ] && cp "$layer" /run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/implicit_layer.d/ 2>/dev/null || true
+        [ -f "$layer" ] && cp -f "$layer" /run/fhs/usr/lib/pressure-vessel/overrides/share/vulkan/implicit_layer.d/ 2>/dev/null || true
       done
 
       mount --bind /run/fhs/bin /bin
@@ -133,10 +189,9 @@ let
     '';
   };
 
-  # Extract Steam bootstrap files at build time from steam-unwrapped source
-  # Tracks nixpkgs steam-unwrapped version automatically
-  # Raw extraction preserves generic shebangs (no nix patchShebangs),
-  # which is required for running under FEX's x86 bash
+  # Extract Steam bootstrap files at build time from steam-unwrapped source.
+  # Raw extraction preserves generic shebangs (no nix patchShebangs), which is
+  # required for running under FEX's x86 bash.
   steamBootstrap = stdenvNoCC.mkDerivation {
     name = "steam-bootstrap-${steam-unwrapped.version}";
     inherit (steam-unwrapped) src;
@@ -149,12 +204,14 @@ let
       runHook postInstall
     '';
   };
+
   desktopItem = makeDesktopItem {
     name = "steam-asahi";
     desktopName = "Steam (Asahi)";
     comment = "Steam on Apple Silicon via muvm + FEX-Emu";
     exec = "steam-asahi %U";
     icon = "steam";
+    startupNotify = true;
     categories = [
       "Game"
       "Network"
@@ -179,11 +236,20 @@ let
       [[ "$(id -u)" -ne 0 ]] || die "Do not run steam-asahi as root"
 
       # --- Ensure FEX rootfs ---
-      fex_configured=false
-      fex_dir="$HOME/.fex-emu"
+      # FEX >= 2605 is XDG-aware: ~/.fex-emu is honored only if it already
+      # exists (legacy); otherwise the rootfs lives in $XDG_DATA_HOME/fex-emu
+      # and Config.json in $XDG_CONFIG_HOME/fex-emu.
+      if [[ -d "$HOME/.fex-emu" ]]; then
+        fex_data_dir="$HOME/.fex-emu"
+        fex_config="$HOME/.fex-emu/Config.json"
+      else
+        fex_data_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu"
+        fex_config="''${XDG_CONFIG_HOME:-$HOME/.config}/fex-emu/Config.json"
+      fi
 
-      if [[ -d "$fex_dir/RootFS" ]]; then
-        for f in "$fex_dir/RootFS"/*; do
+      fex_configured=false
+      if [[ -d "$fex_data_dir/RootFS" ]]; then
+        for f in "$fex_data_dir/RootFS"/*; do
           case "$f" in
             *.ero | *.sqsh | *.img) fex_configured=true; break ;;
           esac
@@ -191,8 +257,8 @@ let
         done
       fi
 
-      if [[ "$fex_configured" = false && -f "$fex_dir/Config.json" ]]; then
-        if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_dir/Config.json" 2>/dev/null; then
+      if [[ "$fex_configured" = false && -f "$fex_config" ]]; then
+        if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_config" 2>/dev/null; then
           fex_configured=true
         fi
       fi
@@ -201,11 +267,71 @@ let
         echo "FEX rootfs not found. Downloading Fedora 43 rootfs..."
         echo "This is a one-time setup (~1.3GB download)."
         echo
-        if ! ${lib.getExe' fex "FEXRootFSFetcher"} --assume-yes --distro-name=Fedora \
-            --distro-version=43 --distro-list-first --as-is; then
-          echo "Automatic download failed. Trying interactive mode..."
-          ${lib.getExe' fex "FEXRootFSFetcher"}
-        fi
+        ${lib.getExe' fex "FEXRootFSFetcher"} --assume-yes --distro-name=Fedora \
+            --distro-version=43 --distro-list-first --as-is \
+          || die "FEX rootfs download failed. Run 'FEXRootFSFetcher' manually from a terminal, then relaunch steam-asahi."
+      fi
+
+      muvm_mem_args=(${lib.optionalString (memoryMiB != null) "--mem=${toString memoryMiB}"})
+
+      # --- Diagnostic mode: run a command through the same microVM + FEX
+      # plumbing Steam uses. A bare `muvm -- FEXBash` is not equivalent because
+      # the rootfs/FHS setup below is launcher-specific.
+      if [[ "''${1:-}" == "--fex" ]]; then
+        shift
+        [[ $# -gt 0 ]] || die "usage: steam-asahi --fex '<command>'"
+        exec ${lib.getExe' coreutils "env"} \
+          -u LANGUAGE \
+          -u LC_ADDRESS \
+          -u LC_COLLATE \
+          -u LC_CTYPE \
+          -u LC_IDENTIFICATION \
+          -u LC_MEASUREMENT \
+          -u LC_MESSAGES \
+          -u LC_MONETARY \
+          -u LC_NAME \
+          -u LC_NUMERIC \
+          -u LC_PAPER \
+          -u LC_TELEPHONE \
+          -u LC_TIME \
+          LANG=C.UTF-8 \
+          LC_ALL=C.UTF-8 \
+          ${lib.getExe muvm} \
+          --gpu-mode=drm \
+          "''${muvm_mem_args[@]}" \
+          --execute-pre ${lib.getExe initScript} \
+          --interactive \
+          -- \
+          FEXBash -c "\
+            export PATH=/usr/local/bin:/usr/bin:/bin:\$PATH; \
+            unset LANGUAGE LC_ADDRESS LC_COLLATE LC_CTYPE LC_IDENTIFICATION LC_MEASUREMENT LC_MESSAGES LC_MONETARY LC_NAME LC_NUMERIC LC_PAPER LC_TELEPHONE LC_TIME; \
+            export LC_ALL=C.UTF-8; \
+            export LANG=C.UTF-8; \
+            $*"
+      fi
+
+      # --- Desktop feedback: plain splash until the Steam UI is likely up ---
+      if ! [[ -t 0 || -t 1 ]]; then
+        splash_marker=$(mktemp)
+        ${lib.getExe yad} --no-buttons --center --borders=16 \
+          --title="Steam" --window-icon=steam \
+          --text="Starting Steam (microVM + FEX)..." &
+        splash_pid=$!
+        (
+          cef_log="$HOME/.local/share/Steam/logs/cef_log.txt"
+          ui_started=false
+          for _ in $(seq 1 180); do
+            kill -0 "$$" 2>/dev/null || break
+            if [[ -f "$cef_log" && "$cef_log" -nt "$splash_marker" ]]; then
+              ui_started=true
+              break
+            fi
+            sleep 1
+          done
+          [[ "$ui_started" = true ]] && sleep 10
+          kill "$splash_pid" 2>/dev/null || true
+          rm -f "$splash_marker"
+        ) &
       fi
 
       data_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/steam-asahi"
@@ -224,15 +350,34 @@ let
       uid=$(id -u)
 
       echo "Launching Steam via muvm + FEX..."
-      exec ${lib.getExe muvm} \
+      exec ${lib.getExe' coreutils "env"} \
+        -u LANGUAGE \
+        -u LC_ADDRESS \
+        -u LC_COLLATE \
+        -u LC_CTYPE \
+        -u LC_IDENTIFICATION \
+        -u LC_MEASUREMENT \
+        -u LC_MESSAGES \
+        -u LC_MONETARY \
+        -u LC_NAME \
+        -u LC_NUMERIC \
+        -u LC_PAPER \
+        -u LC_TELEPHONE \
+        -u LC_TIME \
+        LANG=C.UTF-8 \
+        LC_ALL=C.UTF-8 \
+        ${lib.getExe muvm} \
         --gpu-mode=drm \
+        "''${muvm_mem_args[@]}" \
         --execute-pre ${lib.getExe initScript} \
         --interactive \
         -e "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver" \
         -- \
         FEXBash -c "\
+          export PATH=/usr/local/bin:/usr/bin:/bin:\$PATH; \
           export PULSE_SERVER=unix:/run/user/$uid/pulse/native; \
           export SDL_AUDIODRIVER=pulseaudio; \
+          unset LANGUAGE LC_ADDRESS LC_COLLATE LC_CTYPE LC_IDENTIFICATION LC_MEASUREMENT LC_MESSAGES LC_MONETARY LC_NAME LC_NUMERIC LC_PAPER LC_TELEPHONE LC_TIME; \
           export LC_ALL=C.UTF-8; \
           export LANG=C.UTF-8; \
           export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive; \

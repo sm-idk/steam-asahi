@@ -9,136 +9,41 @@
     { self, nixpkgs }:
     let
       system = "aarch64-linux";
-      lib = nixpkgs.lib;
-
-      overlay =
-        final: prev:
-        let
-          mkGitHubOverride =
-            pkg:
-            {
-              owner,
-              repo,
-              version,
-              tag ? "v${version}",
-              hash,
-              fetchArgs ? { },
-              extraAttrs ? (_old: { }),
-            }:
-            pkg.overrideAttrs (
-              old:
-              let
-                newSrc = prev.fetchFromGitHub (
-                  {
-                    inherit
-                      owner
-                      repo
-                      tag
-                      hash
-                      ;
-                  }
-                  // fetchArgs
-                );
-              in
-              {
-                inherit version;
-                src = newSrc;
-              }
-              // (extraAttrs (old // { src = newSrc; }))
-            );
-        in
-        {
-          libkrunfw = mkGitHubOverride prev.libkrunfw {
-            owner = "containers";
-            repo = "libkrunfw";
-            version = "5.3.0";
-            hash = "sha256-fhG/bP1HzmhyU2N+wnr1074WEGsD9RdTUUBhYUFpWlA=";
-            extraAttrs = _: {
-              kernelSrc = prev.fetchurl {
-                url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.76.tar.xz";
-                hash = "sha256-u7Q+g0xG5r1JpcKPIuZ5qTdENATh9lMgTUskkp862JY=";
-              };
-            };
-          };
-
-          libkrun = mkGitHubOverride prev.libkrun {
-            owner = "containers";
-            repo = "libkrun";
-            version = "1.17.4";
-            hash = "sha256-Th4vCg3xHb6lbo26IDZES7tLOUAJTebQK2+h3xSYX7U=";
-            extraAttrs = old: {
-              cargoDeps = prev.rustPlatform.fetchCargoVendor {
-                inherit (old) src;
-                hash = "sha256-0xpAyNe1jF1OMtc7FXMsejqIv0xKc1ktEvm3rj/mVFU=";
-              };
-              buildInputs = old.buildInputs ++ [ prev.libcap_ng ];
-            };
-          };
-
-          muvm = mkGitHubOverride prev.muvm {
-            owner = "AsahiLinux";
-            repo = "muvm";
-            version = "0.5.1";
-            tag = "muvm-0.5.1";
-            hash = "sha256-eXsU2QRJ55gx5RhjT+m9F1KAFqGrd4WwnyR3eMpuIc4=";
-            extraAttrs = old: {
-              cargoDeps = prev.rustPlatform.importCargoLock {
-                lockFile = old.src + "/Cargo.lock";
-              };
-              postPatch = ''
-                substituteInPlace crates/muvm/src/guest/bin/muvm-guest.rs \
-                  --replace-fail "/usr/lib/systemd/systemd-udevd" "${prev.systemd}/lib/systemd/systemd-udevd"
-              ''
-              + lib.optionalString prev.stdenv.hostPlatform.isAarch64 ''
-                substituteInPlace crates/muvm/src/guest/mount.rs \
-                  --replace-fail "/usr/share/fex-emu" "${final.fex}/share/fex-emu"
-              '';
-            };
-          };
-
-          fex = mkGitHubOverride prev.fex {
-            owner = "FEX-Emu";
-            repo = "FEX";
-            version = "2604";
-            tag = "FEX-2604";
-            hash = "sha256-VPlw15vM3wowgba9Z95F/vRYJLaevtt8lJEgw4hYS8w=";
-            fetchArgs = {
-              leaveDotGit = true;
-              postFetch = ''
-                cd $out
-                git reset
-
-                git submodule update --init --depth 1 \
-                  External/Vulkan-Headers \
-                  External/drm-headers \
-                  External/jemalloc_glibc \
-                  External/rpmalloc \
-                  External/unordered_dense \
-                  External/vixl \
-                  Source/Common/cpp-optparse
-
-                find . -name .git -print0 | xargs -0 rm -rf
-
-                rm -r \
-                  External/vixl/src/aarch32 \
-                  External/vixl/test
-              '';
-            };
-            extraAttrs = _old: {
-              doCheck = false;
-            };
-          };
-
-          steam-asahi = final.callPackage ./pkgs/steam-asahi { };
-        };
 
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [ overlay ];
+        config.allowUnfree = true; # steam-unwrapped
+        overlays = [ self.overlays.default ];
       };
     in
     {
-      overlays.default = overlay;
+      overlays.default = final: prev: {
+        steam-asahi = final.callPackage ./pkgs/steam-asahi { };
+
+        # Temporary packaging-only fix for nixpkgs' fex 2605 under Python 3.14.
+        # The old source/version pin is gone: muvm, libkrun, libkrunfw and FEX
+        # all come from nixpkgs now. Drop this once nixpkgs adds `packaging` to
+        # fex's Python build environment. Replace nixpkgs' incomplete Python
+        # env rather than appending: CMake finds the first `python3` on PATH.
+        fex = prev.fex.overrideAttrs (old: {
+          nativeBuildInputs =
+            final.lib.filter (
+              input:
+              !(
+                final.lib.hasPrefix "python3-" (input.name or "") && final.lib.hasSuffix "-env" (input.name or "")
+              )
+            ) old.nativeBuildInputs
+            ++ [
+              (final.python3.withPackages (
+                ps: with ps; [
+                  packaging
+                  libclang
+                  setuptools
+                ]
+              ))
+            ];
+        });
+      };
 
       packages.${system} = {
         inherit (pkgs)
@@ -148,29 +53,30 @@
           fex
           steam-asahi
           ;
-        default = self.packages.${system}.steam-asahi;
+        default = pkgs.steam-asahi;
       };
 
       nixosModules.default = {
-        nixpkgs.overlays = [ overlay ];
+        nixpkgs.overlays = [ self.overlays.default ];
         imports = [ ./modules/steam-asahi.nix ];
       };
+      nixosModules.steam-asahi = self.nixosModules.default;
 
       devShells.${system}.default = pkgs.mkShell {
         packages = [
           pkgs.muvm
           pkgs.fex
-          self.packages.${system}.steam-asahi
+          pkgs.steam-asahi
         ];
 
         shellHook = ''
           echo "steam-asahi dev shell"
-          echo "  muvm $(muvm --version 2>&1 || echo 'available')"
-          echo "  FEXBash available: $(which FEXBash 2>/dev/null && echo yes || echo no)"
+          echo "  muvm: $(command -v muvm || echo missing)"
+          echo "  FEXBash: $(command -v FEXBash || echo missing)"
           echo ""
           echo "Test commands:"
           echo "  muvm --interactive -- bash -c 'getconf PAGESIZE'   # should print 4096"
-          echo "  muvm --interactive -- FEXBash -c 'uname -m'        # should print x86_64"
+          echo "  steam-asahi --fex 'uname -m'                       # should print x86_64"
           echo "  steam-asahi                                        # launch Steam"
         '';
       };
