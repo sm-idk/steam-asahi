@@ -1,6 +1,8 @@
 # steam-asahi
 
-Nix flake to run Steam on NixOS Asahi Linux (Apple Silicon) via muvm + FEX-Emu.
+Nix flake to run Steam on NixOS Asahi Linux (Apple Silicon) in a 4K-page
+`muvm` guest. The established backend runs the x86 Steam client through FEX;
+an experimental backend runs Valve's native ARM64 public beta.
 
 <img width="3444" height="1967" alt="Image" src="https://github.com/user-attachments/assets/c8b4902b-3e69-43d7-8a21-29f91bb57f8f" />
 
@@ -40,9 +42,11 @@ below are kept as provenance for the fixes this repo originally carried as overl
 | **muvm** | 0.6.0 | stock nixpkgs-unstable; NixOS guest path/FEX share patches upstreamed via [NixOS/nixpkgs#505382](https://github.com/NixOS/nixpkgs/pull/505382) |
 | **FEX-Emu** | 2605 | stock nixpkgs-unstable, with a temporary packaging-only Python `packaging` build fix |
 | **virglrenderer** | 1.3.0 | stock nixpkgs-unstable; Asahi DRM native context is upstream |
-| **Steam bootstrap** | 1.0.0.85 | `steam-unwrapped` from nixpkgs-unstable |
+| **x86 Steam bootstrap** | 1.0.0.85 | `steam-unwrapped` from nixpkgs-unstable |
+| **ARM64 beta bootstrap** | 1783717985 | Valve `steam_client_publicbeta_linuxarm64`, pinned client payload |
 
-The overlay now only adds the `steam-asahi` launcher package plus the temporary FEX packaging hotfix noted above.
+The overlay adds the two launchers, the pinned ARM64 beta bootstrap, and the
+temporary FEX packaging hotfix noted above.
 
 ## Upstreaming notes
 
@@ -90,6 +94,9 @@ You can also use it as a NixOS module:
           {
             programs.steam-asahi = {
               enable = true;
+              backend = "x86-fex"; # default
+              # backend = "arm64"; # experimental native client
+
               # Optional: on 8 GiB machines this leaves the compositor headroom.
               memoryMiB = 6144;
             };
@@ -111,6 +118,35 @@ Do **not** enable `programs.steam` or `hardware.graphics.enable32Bit` on
 `programs.steam-asahi.enable = true`, this module force-disables both
 incompatible options and emits an evaluation warning if something tries to enable
 them.
+
+## Experimental ARM64 client backend
+
+Set `programs.steam-asahi.backend = "arm64"` to use Valve's native ARM64
+public-beta client. It still runs in `muvm`: the beta binaries use 4K ELF
+alignment and cannot be assumed to run on Asahi's 16K-page host. Unlike the
+default backend, the Steam client, CEF, and runtime updater do not pass through
+FEX.
+
+The flake exposes the implementation as separate packages for testing:
+
+```sh
+nix run .#steam-asahi-arm64
+nix run .#steam-asahi-arm64 -- --guest getconf PAGESIZE # should print 4096
+nix run .#steam-asahi-arm64 -- --guest uname -m         # should print aarch64
+```
+
+The package pins Valve's public-beta bootstrap payload declaratively. Steam then
+self-updates in its normal mutable state under `~/.local/share/Steam`; games,
+compatibility tools, shader caches, and client updates are intentionally not Nix
+store state. Both backends currently share that Steam data directory, making
+backend switching possible without duplicating the game library. Back up the
+state before testing: the ARM64 client is unpublished beta software and may
+change its on-disk state.
+
+The ARM64 backend currently establishes the client/runtime path only. Windows
+games still require a suitable ARM build of Proton, and x86 Linux-native games
+still require an architecture-translation compatibility tool. Neither is yet
+packaged or enabled automatically by this flake.
 
 ## Recommended host settings
 

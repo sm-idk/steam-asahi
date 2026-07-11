@@ -1,5 +1,5 @@
 {
-  description = "Steam on NixOS Asahi Linux (Apple Silicon) via muvm + FEX-Emu";
+  description = "Steam on NixOS Asahi Linux via x86/FEX or the native ARM64 beta";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -18,6 +18,8 @@
     in
     {
       overlays.default = final: prev: {
+        steam-arm64-client = final.callPackage ./pkgs/steam-arm64-client { };
+        steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
         steam-asahi = final.callPackage ./pkgs/steam-asahi { };
 
         # Backport https://github.com/NixOS/nixpkgs/pull/540511 for FEX 2605
@@ -49,6 +51,8 @@
           libkrun
           muvm
           fex
+          steam-arm64-client
+          steam-asahi-arm64
           steam-asahi
           ;
         default = pkgs.steam-asahi;
@@ -65,6 +69,7 @@
           pkgs.muvm
           pkgs.fex
           pkgs.steam-asahi
+          pkgs.steam-asahi-arm64
         ];
 
         shellHook = ''
@@ -72,10 +77,13 @@
           echo "  muvm: $(command -v muvm || echo missing)"
           echo "  FEXBash: $(command -v FEXBash || echo missing)"
           echo ""
-          echo "Test commands:"
-          echo "  muvm --interactive -- bash -c 'getconf PAGESIZE'   # should print 4096"
-          echo "  steam-asahi --fex 'uname -m'                       # should print x86_64"
-          echo "  steam-asahi                                        # launch Steam"
+          echo "Backend packages:"
+          echo "  nix run .#steam-asahi         # x86 client through FEX (default)"
+          echo "  nix run .#steam-asahi-arm64   # native ARM64 public beta"
+          echo ""
+          echo "Diagnostics:"
+          echo "  steam-asahi --fex 'uname -m'"
+          echo "  nix run .#steam-asahi-arm64 -- --guest uname -m"
         '';
       };
     };

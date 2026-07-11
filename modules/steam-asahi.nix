@@ -11,13 +11,36 @@ in
 {
   options = {
     programs.steam-asahi = {
-      enable = lib.mkEnableOption "Steam on Apple Silicon via muvm + FEX-Emu";
+      enable = lib.mkEnableOption "Steam on Apple Silicon in a 4K-page microVM";
+
+      backend = lib.mkOption {
+        type = lib.types.enum [
+          "x86-fex"
+          "arm64"
+        ];
+        default = "x86-fex";
+        description = ''
+          Steam client backend. `x86-fex` is the established x86 client running
+          through FEX; `arm64` is Valve's experimental native ARM64 public beta.
+          Both use muvm because Asahi hosts use 16K pages while Valve's binaries
+          currently require a conventional 4K-page environment.
+        '';
+      };
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.steam-asahi.override { inherit (cfg) extraEnv memoryMiB; };
-        defaultText = lib.literalExpression "pkgs.steam-asahi";
-        description = "The steam-asahi launcher package to use.";
+        default =
+          if cfg.backend == "arm64" then
+            pkgs.steam-asahi-arm64.override { inherit (cfg) extraEnv memoryMiB; }
+          else
+            pkgs.steam-asahi.override { inherit (cfg) extraEnv memoryMiB; };
+        defaultText = lib.literalExpression ''
+          if config.programs.steam-asahi.backend == "arm64" then
+            pkgs.steam-asahi-arm64
+          else
+            pkgs.steam-asahi
+        '';
+        description = "Launcher package selected for the configured backend.";
       };
 
       memoryMiB = lib.mkOption {
@@ -35,23 +58,25 @@ in
 
       extraEnv = lib.mkOption {
         type = lib.types.attrsOf lib.types.str;
-        default = {
-          # Conservative baseline; per-game compatibility/performance flags like
-          # PROTON_USE_WINED3D=1 and FEX_X87REDUCEDPRECISION=1 belong in Steam
-          # launch options because they can regress other titles.
-          FEX_MULTIBLOCK = "0";
-          # Skip steam.sh's ldd-based 32-bit glibc probe: it cannot see FEX's
-          # emulated 32-bit support and floods bogus "missing ... libc.so.6" logs.
-          STEAMOS = "1";
-          STEAM_RUNTIME = "1";
-          # Avoid PressureVessel internal errors while importing host Vulkan
-          # layers from NixOS/FEX paths. Vulkan ICD import still works.
-          PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-        };
+        default =
+          if cfg.backend == "arm64" then
+            {
+              STEAM_RUNTIME = "1";
+              PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
+            }
+          else
+            {
+              # Conservative x86/FEX baseline. Per-game flags belong in each
+              # game's Steam launch options because they can regress other titles.
+              FEX_MULTIBLOCK = "0";
+              STEAMOS = "1";
+              STEAM_RUNTIME = "1";
+              PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
+            };
+        defaultText = lib.literalExpression "backend-specific defaults";
         description = ''
-          Extra environment variables exported inside the FEX/Steam environment.
-          Overriding REPLACES the whole default set — repeat any default key you
-          still want.
+          Environment variables exported inside the selected Steam backend.
+          Overriding replaces the backend's complete default set.
         '';
       };
     };
@@ -69,25 +94,29 @@ in
       apply =
         value:
         if cfg.enable && value then
-          lib.warn "steam-asahi: forcing hardware.graphics.enable32Bit = false; 32-bit x86 support comes from the FEX rootfs, not host 32-bit graphics." false
+          lib.warn "steam-asahi: forcing hardware.graphics.enable32Bit = false; neither backend uses host aarch64 32-bit graphics." false
         else
           value;
     };
   };
 
   config = lib.mkIf cfg.enable {
-    # These are already in the launcher's closure; exposing them in the system
-    # PATH makes diagnostics and manual FEXRootFSFetcher refreshes work.
+    # muvm is useful for diagnostics with either backend. FEX/rootfs utilities
+    # are exposed only when the x86 backend is selected.
     environment.systemPackages = [
       cfg.package
       pkgs.muvm
+    ]
+    ++ lib.optionals (cfg.backend == "x86-fex") [
       pkgs.fex
       pkgs.squashfuse
       pkgs.erofs-utils
     ];
 
-    # Host-side Mesa/virglrenderer for Asahi DRM native-context rendering.
+    # Host-side Mesa/virglrenderer for Asahi DRM native-context rendering and
+    # standard Steam controller/input udev rules.
     hardware.graphics.enable = lib.mkDefault true;
+    hardware.steam-hardware.enable = lib.mkDefault true;
 
     # Deliberately not set here:
     # - users.*.extraGroups = [ "kvm" ]: per-user host policy.
