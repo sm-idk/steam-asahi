@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   writeShellApplication,
   symlinkJoin,
   makeDesktopItem,
@@ -13,6 +14,7 @@
   pciutils,
   yad,
   lsb-release,
+  lsof,
   glibc,
   libvpx,
   alsa-lib,
@@ -20,6 +22,7 @@
   at-spi2-atk,
   cairo,
   cups,
+  curl,
   dbus,
   expat,
   fontconfig,
@@ -27,11 +30,14 @@
   gdk-pixbuf,
   glib,
   gtk2,
+  ibus,
   libGL,
   libdrm,
   libgbm,
   libpulseaudio,
+  libusb1,
   libxkbcommon,
+  libxcb,
   libX11,
   libXcomposite,
   libXcursor,
@@ -44,11 +50,15 @@
   libXrender,
   libXScrnSaver,
   libXtst,
+  libSM,
+  libICE,
   networkmanager,
+  nspr,
+  nss,
   openal,
+  pango,
   pipewire,
   SDL2,
-  sdl3,
   systemd,
   vulkan-loader,
   memoryMiB ? null,
@@ -61,11 +71,13 @@
 let
   nativeLibraries = [
     glibc
+    stdenv.cc.cc.lib
     alsa-lib
     atk
     at-spi2-atk
     cairo
     cups
+    curl
     dbus
     expat
     fontconfig
@@ -73,12 +85,15 @@ let
     gdk-pixbuf
     glib
     gtk2
+    ibus
     libGL
     libdrm
     libgbm
     libpulseaudio
+    libusb1
     libvpx
     libxkbcommon
+    libxcb
     libX11
     libXcomposite
     libXcursor
@@ -91,11 +106,15 @@ let
     libXrender
     libXScrnSaver
     libXtst
+    libSM
+    libICE
     networkmanager
+    nspr
+    nss
     openal
+    pango
     pipewire
     SDL2
-    sdl3
     systemd
     vulkan-loader
   ];
@@ -140,6 +159,20 @@ let
     "timezone"
   ];
 
+  lspciShim = writeShellApplication {
+    name = "steam-asahi-lspci";
+    runtimeInputs = [ pciutils ];
+    text = ''
+      # Apple Silicon normally has no PCI bus. Steam uses lspci only for
+      # diagnostics, so suppress pciutils errors unless a PCI device exists.
+      if [[ -d /sys/bus/pci/devices ]]; then
+        for device in /sys/bus/pci/devices/*; do
+          [[ -e "$device" ]] && exec lspci "$@"
+        done
+      fi
+    '';
+  };
+
   initScript = writeShellApplication {
     name = "steam-asahi-arm64-init";
     runtimeInputs = [
@@ -156,16 +189,7 @@ let
       ln -sf ${bash}/bin/bash /run/fhs/bin/bash
       ln -sf ${bash}/bin/sh /run/fhs/bin/sh
 
-      cat > /run/fhs/bin/lspci <<'EOF'
-      #!/bin/sh
-      if [ -d /sys/bus/pci/devices ]; then
-        for dev in /sys/bus/pci/devices/*; do
-          [ -e "$dev" ] && exec ${pciutils}/bin/lspci "$@"
-        done
-      fi
-      exit 0
-      EOF
-      chmod +x /run/fhs/bin/lspci
+      ln -sf ${lib.getExe lspciShim} /run/fhs/bin/lspci
       ln -sf ${lib.getExe lsb-release} /run/fhs/bin/lsb_release
       ln -sf ${lib.getExe yad} /run/fhs/bin/zenity
 
@@ -231,6 +255,19 @@ let
           fi
         fi
       done
+      # HOME alone is insufficient for Steam state isolation: parts of the
+      # client consult getpwuid(). Mirror the requested guest HOME in passwd.
+      if [[ -n "''${STEAM_ASAHI_GUEST_HOME:-}" && -n "''${STEAM_ASAHI_GUEST_UID:-}" ]]; then
+        while IFS=: read -r name password entry_uid gid gecos home shell; do
+          if [[ "$entry_uid" == "$STEAM_ASAHI_GUEST_UID" ]]; then
+            home="$STEAM_ASAHI_GUEST_HOME"
+          fi
+          printf '%s:%s:%s:%s:%s:%s:%s\n' \
+            "$name" "$password" "$entry_uid" "$gid" "$gecos" "$home" "$shell"
+        done < /run/fhs/etc/passwd > /run/fhs/etc/passwd.new
+        mv /run/fhs/etc/passwd.new /run/fhs/etc/passwd
+      fi
+
       mkdir -p ${lib.concatMapStringsSep " " (dir: "/run/fhs/etc/${dir}") etcStubDirs}
       touch ${lib.concatMapStringsSep " " (file: "/run/fhs/etc/${file}") etcStubFiles}
       mount --bind /run/fhs/etc /etc
@@ -239,7 +276,10 @@ let
 
   guestLauncher = writeShellApplication {
     name = "steam-asahi-arm64-guest";
-    runtimeInputs = [ coreutils ];
+    runtimeInputs = [
+      coreutils
+      lsof
+    ];
     text = ''
       export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
       steam_native_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/Steam/steamrtarm64"
@@ -249,6 +289,8 @@ let
       uid=$(id -u)
       export PULSE_SERVER="unix:/run/user/$uid/pulse/native"
       export SDL_AUDIODRIVER=pulseaudio
+      export VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/asahi_icd.aarch64.json
+      export MESA_LOADER_DRIVER_OVERRIDE=asahi
       export LC_ALL=C.UTF-8
       export LANG=C.UTF-8
       export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive
@@ -314,6 +356,8 @@ let
           --execute-pre ${lib.getExe initScript} \
           --interactive \
           -e "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver" \
+          -e "STEAM_ASAHI_GUEST_HOME=$HOME" \
+          -e "STEAM_ASAHI_GUEST_UID=$(id -u)" \
           -- \
           ${lib.getExe guestLauncher} "$@"
       }
@@ -335,9 +379,17 @@ let
         chmod -R u+rwX "$client_dir"
       fi
 
-      mkdir -p "$(dirname "$beta_file")"
+      mkdir -p "$(dirname "$beta_file")" "$HOME/.steam"
       if [[ ! -f "$beta_file" || "$(<"$beta_file")" != "publicbeta" ]]; then
         printf '%s\n' publicbeta > "$beta_file"
+      fi
+      for link in steam root; do
+        if [[ ! -e "$HOME/.steam/$link" && ! -L "$HOME/.steam/$link" ]]; then
+          ln -s "$steam_dir" "$HOME/.steam/$link"
+        fi
+      done
+      if [[ ! -e "$HOME/.steam/sdkarm64" && ! -L "$HOME/.steam/sdkarm64" ]]; then
+        ln -s "$steam_dir/linuxarm64" "$HOME/.steam/sdkarm64"
       fi
 
       if ! [[ -t 0 || -t 1 ]]; then

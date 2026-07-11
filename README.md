@@ -134,6 +134,7 @@ nix develop
 steam-asahi-arm64 --guest getconf PAGESIZE # should print 4096
 steam-asahi-arm64 --guest uname -m         # should print aarch64
 steam-asahi-arm64-test                     # launch with isolated test state
+steam-asahi-arm64-test --import-login      # copy normal login into test state
 ```
 
 `steam-asahi-arm64` uses the normal `~/.local/share/Steam` state.
@@ -141,6 +142,14 @@ steam-asahi-arm64-test                     # launch with isolated test state
 `~/.local/share/steam-asahi-arm64-test-home`, avoiding changes to the normal
 Steam installation. Override that location with `STEAM_ASAHI_ARM64_TEST_HOME`.
 This is state isolation for testing, not a security sandbox.
+
+The beta's unauthenticated ARM64 login screen can remain at **Waiting for
+network** even when connectivity succeeds. First log in with the x86/FEX client,
+then use `steam-asahi-arm64-test --import-login`. This copies `local.vdf`,
+`loginusers.vdf`, `config.vdf`, and the Steam registry into the isolated state;
+it does not modify the normal installation. Those files include a persistent
+login credential, so protect or remove the test directory as you would normal
+Steam state.
 
 The packages can also be run without entering the development shell:
 

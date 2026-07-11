@@ -73,8 +73,34 @@
             exec ${pkgs.steam-asahi-arm64}/bin/steam-asahi "$@"
           '';
           arm64TestCommand = pkgs.writeShellScriptBin "steam-asahi-arm64-test" ''
-            test_home="''${STEAM_ASAHI_ARM64_TEST_HOME:-''${XDG_DATA_HOME:-$HOME/.local/share}/steam-asahi-arm64-test-home}"
+            source_home="$HOME"
+            source_data_home="''${XDG_DATA_HOME:-$HOME/.local/share}"
+            test_home="''${STEAM_ASAHI_ARM64_TEST_HOME:-$source_data_home/steam-asahi-arm64-test-home}"
+
+            import_login=false
+            if [[ "''${1:-}" == "--import-login" ]]; then
+              import_login=true
+              shift
+            fi
+
             mkdir -p "$test_home"
+            if [[ "$import_login" == true ]]; then
+              source_steam="$source_data_home/Steam"
+              test_steam="$test_home/.local/share/Steam"
+              if [[ ! -f "$source_steam/local.vdf" || ! -f "$source_steam/config/loginusers.vdf" || ! -f "$source_steam/config/config.vdf" ]]; then
+                echo "ERROR: no complete logged-in Steam state found under $source_steam" >&2
+                exit 1
+              fi
+              mkdir -p "$test_steam/config" "$test_home/.steam"
+              cp -a "$source_steam/local.vdf" "$test_steam/local.vdf"
+              cp -a "$source_steam/config/loginusers.vdf" "$test_steam/config/loginusers.vdf"
+              cp -a "$source_steam/config/config.vdf" "$test_steam/config/config.vdf"
+              if [[ -f "$source_home/.steam/registry.vdf" ]]; then
+                cp -a "$source_home/.steam/registry.vdf" "$test_home/.steam/registry.vdf"
+              fi
+              echo "Imported a copy of the normal Steam login into isolated test state."
+            fi
+
             export HOME="$test_home"
             export XDG_DATA_HOME="$test_home/.local/share"
             export XDG_CONFIG_HOME="$test_home/.config"
@@ -103,7 +129,7 @@
             echo "  steam-asahi              # x86/FEX default"
             echo "  steam-asahi-x86          # explicit x86/FEX backend"
             echo "  steam-asahi-arm64        # ARM64 beta, normal Steam state"
-            echo "  steam-asahi-arm64-test   # ARM64 beta, isolated test state"
+            echo "  steam-asahi-arm64-test   # ARM64 beta, isolated test state (--import-login supported)"
             echo ""
             echo "ARM64 diagnostics:"
             echo "  steam-asahi-arm64 --guest uname -m"
