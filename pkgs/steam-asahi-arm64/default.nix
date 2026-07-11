@@ -101,7 +101,6 @@ let
   ];
 
   nativeLibraryPath = lib.makeLibraryPath nativeLibraries;
-  libvpxLib = lib.getLib libvpx;
 
   # Keep all native libraries in the launcher's closure. The FHS setup links
   # their contents into conventional ARM64 library directories inside muvm.
@@ -193,16 +192,6 @@ let
         ln -sfn "$path" "/run/fhs/usr/lib/aarch64-linux-gnu/$name"
       done
 
-      # The beta still requests the older libvpx.so.6 SONAME. The published
-      # setup uses a compatibility symlink to the distribution's current
-      # libvpx. Keep this experimental workaround confined to the microVM guest.
-      if [ -e ${libvpxLib}/lib/libvpx.so ]; then
-        ln -sfn ${libvpxLib}/lib/libvpx.so \
-          /run/fhs/usr/lib/aarch64-linux-gnu/libvpx.so.6
-        ln -sfn ${libvpxLib}/lib/libvpx.so /run/fhs/usr/lib64/libvpx.so.6
-        ln -sfn ${libvpxLib}/lib/libvpx.so /run/fhs/usr/lib/libvpx.so.6
-      fi
-
       mkdir -p /run/fhs/usr/share
       rm -rf /run/fhs/usr/share/i18n
       ln -s ${glibc}/share/i18n /run/fhs/usr/share/i18n
@@ -253,7 +242,10 @@ let
     runtimeInputs = [ coreutils ];
     text = ''
       export PATH=/usr/local/bin:/usr/bin:/bin:$PATH
-      export LD_LIBRARY_PATH=/run/opengl-driver/lib:${nativeLibraryPath}:''${LD_LIBRARY_PATH:-}
+      steam_native_dir="''${XDG_DATA_HOME:-$HOME/.local/share}/Steam/steamrtarm64"
+      # Prefer Valve's coherent client runtime over same-SONAME Nix libraries;
+      # fall back to the system Asahi graphics stack and declared native libs.
+      export LD_LIBRARY_PATH="$steam_native_dir:$steam_native_dir/libs:/run/opengl-driver/lib:${nativeLibraryPath}:''${LD_LIBRARY_PATH:-}"
       uid=$(id -u)
       export PULSE_SERVER="unix:/run/user/$uid/pulse/native"
       export SDL_AUDIODRIVER=pulseaudio
@@ -261,6 +253,23 @@ let
       export LANG=C.UTF-8
       export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive
       ${extraEnvExports}
+
+      if [[ "''${1:-}" == "--steam" ]]; then
+        shift
+        while true; do
+          if "$@"; then
+            status=0
+          else
+            status=$?
+          fi
+          if [[ "$status" -ne 42 ]]; then
+            exit "$status"
+          fi
+          echo "Steam requested a client restart; relaunching inside the existing microVM..."
+          sleep 1
+        done
+      fi
+
       exec "$@"
     '';
   };
@@ -351,7 +360,7 @@ let
       fi
 
       echo "Launching native ARM64 Steam via muvm..."
-      run_guest "$client_dir/steam" -cef-force-occlusion "$@"
+      run_guest --steam "$client_dir/steam" -cef-force-occlusion "$@"
     '';
 
     meta = {
