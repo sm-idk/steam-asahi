@@ -127,12 +127,26 @@ alignment and cannot be assumed to run on Asahi's 16K-page host. Unlike the
 default backend, the Steam client, CEF, and runtime updater do not pass through
 FEX.
 
-The flake exposes the implementation as separate packages for testing:
+The development shell exposes unambiguous commands for both backends:
+
+```sh
+nix develop
+steam-asahi-arm64 --guest getconf PAGESIZE # should print 4096
+steam-asahi-arm64 --guest uname -m         # should print aarch64
+steam-asahi-arm64-test                     # launch with isolated test state
+```
+
+`steam-asahi-arm64` uses the normal `~/.local/share/Steam` state.
+`steam-asahi-arm64-test` instead changes `HOME` and all XDG state directories to
+`~/.local/share/steam-asahi-arm64-test-home`, avoiding changes to the normal
+Steam installation. Override that location with `STEAM_ASAHI_ARM64_TEST_HOME`.
+This is state isolation for testing, not a security sandbox.
+
+The packages can also be run without entering the development shell:
 
 ```sh
 nix run .#steam-asahi-arm64
-nix run .#steam-asahi-arm64 -- --guest getconf PAGESIZE # should print 4096
-nix run .#steam-asahi-arm64 -- --guest uname -m         # should print aarch64
+nix run .#steam-asahi-arm64 -- --guest getconf PAGESIZE
 ```
 
 The package pins Valve's public-beta bootstrap payload declaratively. Steam then
