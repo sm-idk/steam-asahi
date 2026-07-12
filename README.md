@@ -166,10 +166,34 @@ backend switching possible without duplicating the game library. Back up the
 state before testing: the ARM64 client is unpublished beta software and may
 change its on-disk state.
 
-The ARM64 backend currently establishes the client/runtime path only. Windows
-games still require a suitable ARM build of Proton, and x86 Linux-native games
-still require an architecture-translation compatibility tool. Neither is yet
-packaged or enabled automatically by this flake.
+### ARM Proton 11
+
+Valve publishes **Proton 11.0 (ARM64)** as Steam AppID `4628740` and its
+required **Steam Linux Runtime 4.0 - Arm64** as AppID `4185400`. Install both
+through Steam in the ARM64 profile (the `steam://install/APPID` URLs can be
+used). Valve's current ARM beta does not include either app in the
+compatibility-tool registry it downloads, even after both are installed.
+
+When both official payloads are present, the launcher creates a small managed
+entry under `Steam/compatibilitytools.d/steam-asahi-proton-11-arm64`. It does
+not modify or copy Valve's files: it links to the Steam-managed installations
+and composes Runtime 4 around Proton. **Proton 11.0 (ARM64)** then appears in
+the per-game and default compatibility-tool menus after restarting Steam.
+Selecting it for a Linux-native title makes Steam replace that installation
+with the Windows depot, as with any other Proton selection.
+
+The wrapper also works around two current beta issues: local tools are
+registered as AppID 0 (which otherwise selects `compatdata/0`), and Proton's
+ARM64 Python interpreter does not automatically see Pressure Vessel's captured
+host libraries. Diagnostic output is appended to
+`compatibilitytools.d/steam-asahi-proton-11-arm64/steam-asahi-proton.log` and
+rotated at launcher startup after it exceeds 1 MiB.
+
+This has launched a Windows game through Runtime 4, ARM Proton, Wine/FEX, and
+the Asahi Vulkan stack. Compatibility remains game-specific; anti-cheat and
+other Proton limitations still apply. x86 Linux-native games still need a
+separate FEX compatibility path unless their Windows build is selected through
+ARM Proton.
 
 ## Recommended host settings
 

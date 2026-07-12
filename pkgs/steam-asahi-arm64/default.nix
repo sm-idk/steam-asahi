@@ -11,6 +11,8 @@
   bash,
   coreutils,
   util-linux,
+  brotli,
+  bzip2,
   pciutils,
   yad,
   lsb-release,
@@ -35,6 +37,7 @@
   libdrm,
   libgbm,
   libpulseaudio,
+  libpng,
   libusb1,
   libxkbcommon,
   libxcb,
@@ -61,6 +64,7 @@
   SDL2,
   systemd,
   vulkan-loader,
+  zlib,
   memoryMiB ? null,
   extraEnv ? {
     STEAM_RUNTIME = "1";
@@ -72,6 +76,8 @@ let
   nativeLibraries = [
     glibc
     stdenv.cc.cc.lib
+    brotli
+    bzip2
     alsa-lib
     atk
     at-spi2-atk
@@ -90,6 +96,7 @@ let
     libdrm
     libgbm
     libpulseaudio
+    libpng
     libusb1
     libvpx
     libxkbcommon
@@ -117,6 +124,7 @@ let
     SDL2
     systemd
     vulkan-loader
+    zlib
   ];
 
   nativeLibraryPath = lib.makeLibraryPath nativeLibraries;
@@ -125,7 +133,7 @@ let
   # their contents into conventional ARM64 library directories inside muvm.
   nativeRuntime = buildEnv {
     name = "steam-arm64-native-runtime";
-    paths = nativeLibraries;
+    paths = map lib.getLib nativeLibraries;
     pathsToLink = [ "/lib" ];
     ignoreCollisions = true;
   };
@@ -184,8 +192,14 @@ let
       # Valve's ARM64 binaries request /lib/ld-linux-aarch64.so.1 and assume a
       # conventional distro filesystem. Construct that filesystem in guest-only
       # tmpfs mounts; no host path is modified by these operations.
-      mkdir -p /run/fhs/bin /run/fhs/lib /run/fhs/usr
+      mkdir -p /run/fhs/bin /run/fhs/lib/aarch64-linux-gnu /run/fhs/usr
       cp -a /bin/* /run/fhs/bin/ 2>/dev/null || true
+      # Pressure Vessel runs basic host-side probes such as `bwrap true`.
+      # Steam sanitizes PATH for tool launches, so these commands must also be
+      # present at conventional FHS paths rather than only in a Nix PATH.
+      for command in ${coreutils}/bin/* ${lib.getBin glibc}/bin/*; do
+        ln -sf "$command" "/run/fhs/bin/$(basename "$command")"
+      done
       ln -sf ${bash}/bin/bash /run/fhs/bin/bash
       ln -sf ${bash}/bin/sh /run/fhs/bin/sh
 
@@ -199,7 +213,9 @@ let
         /run/fhs/usr/lib \
         /run/fhs/usr/lib64 \
         /run/fhs/usr/lib/aarch64-linux-gnu
-      ln -sf ${coreutils}/bin/env /run/fhs/usr/bin/env
+      for command in ${coreutils}/bin/* ${lib.getBin glibc}/bin/*; do
+        ln -sf "$command" "/run/fhs/usr/bin/$(basename "$command")"
+      done
       ln -sf /run/fhs/bin/lspci /run/fhs/usr/bin/lspci
       ln -sf ${lib.getExe lsb-release} /run/fhs/usr/bin/lsb_release
       ln -sf ${lib.getExe yad} /run/fhs/usr/bin/zenity
@@ -211,6 +227,7 @@ let
         [ -e "$path" ] || continue
         name=$(basename "$path")
         ln -sfn "$path" "/run/fhs/lib/$name"
+        ln -sfn "$path" "/run/fhs/lib/aarch64-linux-gnu/$name"
         ln -sfn "$path" "/run/fhs/usr/lib/$name"
         ln -sfn "$path" "/run/fhs/usr/lib64/$name"
         ln -sfn "$path" "/run/fhs/usr/lib/aarch64-linux-gnu/$name"
@@ -270,7 +287,33 @@ let
 
       mkdir -p ${lib.concatMapStringsSep " " (dir: "/run/fhs/etc/${dir}") etcStubDirs}
       touch ${lib.concatMapStringsSep " " (file: "/run/fhs/etc/${file}") etcStubFiles}
+      cat > /run/fhs/etc/ld.so.conf <<'EOF'
+      /lib
+      /lib/aarch64-linux-gnu
+      /usr/lib
+      /usr/lib64
+      /usr/lib/aarch64-linux-gnu
+      /run/opengl-driver/lib
+      EOF
       mount --bind /run/fhs/etc /etc
+
+      # libcapsule consults Debian's auxiliary cache location while importing
+      # host graphics libraries into Pressure Vessel. NixOS has no ld.so cache,
+      # so build one from the guest-only FHS tree after its mounts are active.
+      mkdir -p \
+        /run/fhs/var/cache/ldconfig \
+        /run/fhs/var/lib \
+        /run/fhs/var/log \
+        /run/fhs/var/tmp
+      chmod 1777 /run/fhs/var/tmp
+      ln -s /run /run/fhs/var/run
+      # The unprivileged guest user cannot create a new mountpoint in the
+      # inherited /var, but can bind over the existing /var mountpoint.
+      mount --bind /run/fhs/var /var
+      ${lib.getExe' (lib.getBin glibc) "ldconfig"} \
+        -X -f /etc/ld.so.conf -C /var/cache/ldconfig/ld.so.cache
+      rm -f /etc/ld.so.cache
+      ln -s /var/cache/ldconfig/ld.so.cache /etc/ld.so.cache
     '';
   };
 
@@ -390,6 +433,109 @@ let
       done
       if [[ ! -e "$HOME/.steam/sdkarm64" && ! -L "$HOME/.steam/sdkarm64" ]]; then
         ln -s "$steam_dir/linuxarm64" "$HOME/.steam/sdkarm64"
+      fi
+      # Valve currently publishes ARM Proton and its ARM64 runtime as Steam
+      # apps but omits both from the compatibility-tool registry delivered to
+      # this client. Register a composed local tool once both official payloads
+      # are installed. The wrapper recreates the intended Runtime 4 -> Proton
+      # layering without modifying Valve's mutable files.
+      proton_dir="$steam_dir/steamapps/common/Proton 11.0 (ARM64)"
+      runtime_dir="$steam_dir/steamapps/common/SteamLinuxRuntime_4-arm64"
+      compat_dir="$steam_dir/compatibilitytools.d/steam-asahi-proton-11-arm64"
+      if [[ -x "$proton_dir/proton" && -x "$runtime_dir/_v2-entry-point" ]]; then
+        mkdir -p "$compat_dir"
+        cat > "$compat_dir/compatibilitytool.vdf.tmp" <<'EOF'
+      "compatibilitytools"
+      {
+        "compat_tools"
+        {
+          "proton_11_arm64"
+          {
+            "install_path" "."
+            "display_name" "Proton 11.0 (ARM64)"
+            "from_oslist" "windows"
+            "to_oslist" "linux"
+          }
+        }
+      }
+      EOF
+        mv "$compat_dir/compatibilitytool.vdf.tmp" "$compat_dir/compatibilitytool.vdf"
+        cat > "$compat_dir/toolmanifest.vdf.tmp" <<'EOF'
+      "manifest"
+      {
+        "version" "2"
+        "commandline" "/steam-asahi-proton %verb%"
+        "compatmanager_layer_name" "proton"
+      }
+      EOF
+        mv "$compat_dir/toolmanifest.vdf.tmp" "$compat_dir/toolmanifest.vdf"
+        cat > "$compat_dir/run-proton.tmp" <<'EOF'
+      #!/bin/sh
+      set -eu
+      me="$(readlink -f "$0")"
+      here="''${me%/*}"
+      export LD_LIBRARY_PATH="$here/host-libs:/usr/lib/pressure-vessel/overrides/lib/aarch64-linux-gnu:/usr/lib/pressure-vessel/overrides/lib:''${LD_LIBRARY_PATH:-}"
+      exec python3 "$here/proton/proton" "$@"
+      EOF
+        mv "$compat_dir/run-proton.tmp" "$compat_dir/run-proton"
+        chmod 755 "$compat_dir/run-proton"
+        cat > "$compat_dir/steam-asahi-proton.tmp" <<'EOF'
+      #!/bin/sh
+      set -eu
+      me="$(readlink -f "$0")"
+      here="''${me%/*}"
+      verb="''${1:?missing Steam compatibility verb}"
+      shift
+
+      # The ARM beta registers local tools as AppID 0 and can consequently
+      # derive compatdata/0. Recover the target game ID from Steam's wrapper.
+      app_id=
+      for candidate in "''${SteamAppId:-}" "''${SteamGameId:-}" "''${STEAM_COMPAT_APP_ID:-}"; do
+        case "$candidate" in
+          (""|0|*[!0-9]*) ;;
+          (*) app_id="$candidate"; break ;;
+        esac
+      done
+      compat_data="''${STEAM_COMPAT_DATA_PATH:-}"
+      if [ -n "$app_id" ]; then
+        export STEAM_COMPAT_APP_ID="$app_id"
+        if [ "''${compat_data##*/}" = 0 ]; then
+          export STEAM_COMPAT_DATA_PATH="''${compat_data%/0}/$app_id"
+        fi
+      elif [ "''${compat_data##*/}" = 0 ]; then
+        # Steam runs tool-level graphics probes without a target game ID.
+        export STEAM_COMPAT_DATA_PATH="''${compat_data%/0}/steam-asahi-tool"
+      fi
+      if [ -n "''${STEAM_COMPAT_DATA_PATH:-}" ]; then
+        mkdir -p "$STEAM_COMPAT_DATA_PATH"
+      fi
+
+      log="$here/steam-asahi-proton.log"
+      {
+        printf '\n=== %s verb=%s app=%s compatdata=%s ===\n' \
+          "$(date --iso-8601=seconds)" "$verb" "''${app_id:-unknown}" "''${STEAM_COMPAT_DATA_PATH:-unset}"
+        printf 'command:'
+        printf ' <%s>' "$@"
+        printf '\n'
+      } >> "$log"
+
+      exec >> "$log" 2>&1
+      exec "$here/runtime/_v2-entry-point" --verb="$verb" -- \
+        "$here/run-proton" "$verb" "$@"
+      EOF
+        mv "$compat_dir/steam-asahi-proton.tmp" "$compat_dir/steam-asahi-proton"
+        chmod 755 "$compat_dir/steam-asahi-proton"
+        ln -sfn "$proton_dir" "$compat_dir/proton"
+        ln -sfn "$runtime_dir" "$compat_dir/runtime"
+        ln -sfn ${nativeRuntime}/lib "$compat_dir/host-libs"
+        rm -f "$steam_dir/compatibilitytools.d/steam-asahi-arm64.vdf"
+
+        if [[ -f "$compat_dir/steam-asahi-proton.log" ]] && \
+           [[ $(stat -c %s "$compat_dir/steam-asahi-proton.log") -gt 1048576 ]]; then
+          mv -f "$compat_dir/steam-asahi-proton.log" "$compat_dir/steam-asahi-proton.log.old"
+        fi
+      elif [[ -x "$proton_dir/proton" ]]; then
+        echo "ARM Proton is installed, but Steam Linux Runtime 4.0 - Arm64 (AppID 4185400) is missing." >&2
       fi
 
       if ! [[ -t 0 || -t 1 ]]; then
