@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Portable flake checks (x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
+        with:
+          github_access_token: ${{ github.token }}
+
+      - name: Evaluate every flake output
+        run: nix flake check --all-systems --no-build --print-build-logs
+
+      - name: Build non-VM checks
+        shell: bash
+        run: |
+          mapfile -t checks < <(
+            nix eval --json .#checks.x86_64-linux \
+              --apply builtins.attrNames \
+              | jq -r '.[] | select(. != "steam-asahi-nixos-vm") |
+                ".#checks.x86_64-linux." + .'
+          )
+          ((${#checks[@]} > 0))
+          printf 'Building %s\n' "${checks[@]}"
+          nix build --print-build-logs "${checks[@]}"
+
+  native-tests:
+    name: Native flake checks (aarch64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
+        with:
+          github_access_token: ${{ github.token }}
+
+      - name: Build native non-VM checks
+        shell: bash
+        run: |
+          mapfile -t checks < <(
+            nix eval --json .#checks.aarch64-linux \
+              --apply builtins.attrNames \
+              | jq -r '.[] | select(. != "steam-asahi-nixos-vm") |
+                ".#checks.aarch64-linux." + .'
+          )
+          ((${#checks[@]} > 0))
+          printf 'Building %s\n' "${checks[@]}"
+          nix build --print-build-logs "${checks[@]}"
+
+  vm-tests:
+    name: NixOS VM test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Nix with KVM support
+        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
+        with:
+          enable_kvm: true
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+          github_access_token: ${{ github.token }}
+
+      - name: Verify KVM access
+        run: test -r /dev/kvm -a -w /dev/kvm
+
+      - name: Run NixOS VM test
+        run: >-
+          nix build --print-build-logs
+          .#checks.x86_64-linux.steam-asahi-nixos-vm
