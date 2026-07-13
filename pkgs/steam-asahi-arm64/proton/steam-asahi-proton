@@ -1,0 +1,67 @@
+#!/bin/sh
+# shellcheck shell=sh
+#
+# Repairs Steam's ARM64 compatibility environment before entering the runtime.
+
+set -eu
+
+script_path=$(readlink -f "$0")
+tool_directory=${script_path%/*}
+if [ "$#" -eq 0 ]; then
+  printf '%s\n' 'ERROR: missing Steam compatibility verb' >&2
+  exit 2
+fi
+verb=$1
+readonly script_path tool_directory verb
+shift
+
+# The ARM beta registers local tools as AppID 0 and can consequently derive
+# compatdata/0. Recover the target game ID from Steam's wrapper.
+app_id=
+for candidate in \
+  "${SteamAppId:-}" \
+  "${SteamGameId:-}" \
+  "${STEAM_COMPAT_APP_ID:-}"
+do
+  case "$candidate" in
+    "" | 0 | *[!0-9]*) ;;
+    *)
+      app_id=$candidate
+      break
+      ;;
+  esac
+done
+
+compat_data=${STEAM_COMPAT_DATA_PATH:-}
+compat_data_without_trailing_slash=${compat_data%/}
+if [ -n "${app_id}" ]; then
+  export STEAM_COMPAT_APP_ID="${app_id}"
+  if [ "${compat_data_without_trailing_slash##*/}" = 0 ]; then
+    export STEAM_COMPAT_DATA_PATH=\
+"${compat_data_without_trailing_slash%/0}/${app_id}"
+  fi
+elif [ "${compat_data_without_trailing_slash##*/}" = 0 ]; then
+  # Steam runs tool-level graphics probes without a target game ID.
+  export STEAM_COMPAT_DATA_PATH=\
+"${compat_data_without_trailing_slash%/0}/steam-asahi-tool"
+fi
+if [ -n "${STEAM_COMPAT_DATA_PATH:-}" ]; then
+  mkdir -p -- "${STEAM_COMPAT_DATA_PATH}"
+fi
+
+log_path="${tool_directory}/steam-asahi-proton.log"
+timestamp=$(date --iso-8601=seconds)
+{
+  printf '\n=== %s verb=%s app=%s compatdata=%s ===\n' \
+    "${timestamp}" "${verb}" "${app_id:-unknown}" \
+    "${STEAM_COMPAT_DATA_PATH:-unset}"
+  printf 'command:'
+  if [ "$#" -gt 0 ]; then
+    printf ' <%s>' "$@"
+  fi
+  printf '\n'
+} >>"${log_path}"
+
+exec >>"${log_path}" 2>&1
+exec "${tool_directory}/runtime/_v2-entry-point" --verb="${verb}" -- \
+  "${tool_directory}/run-proton" "${verb}" "$@"

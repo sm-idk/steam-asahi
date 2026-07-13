@@ -1,0 +1,13 @@
+"compatibilitytools"
+{
+    "compat_tools"
+    {
+        "@toolName@"
+        {
+            "install_path" "."
+            "display_name" "@displayName@"
+            "from_oslist" "windows"
+            "to_oslist" "linux"
+        }
+    }
+}

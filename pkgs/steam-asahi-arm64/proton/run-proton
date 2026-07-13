@@ -1,0 +1,19 @@
+#!/bin/sh
+# shellcheck shell=sh
+#
+# Runs Proton with the host libraries imported into Pressure Vessel.
+
+set -eu
+
+script_path=$(readlink -f "$0")
+tool_directory=${script_path%/*}
+readonly script_path tool_directory
+
+override_library_directory=/usr/lib/pressure-vessel/overrides/lib
+library_path="${tool_directory}/host-libs"
+library_path="${library_path}:${override_library_directory}/aarch64-linux-gnu"
+library_path="${library_path}:${override_library_directory}"
+readonly library_path override_library_directory
+export LD_LIBRARY_PATH="${library_path}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+exec python3 "${tool_directory}/proton/proton" "$@"

@@ -1,0 +1,6 @@
+"manifest"
+{
+    "version" "2"
+    "commandline" "/steam-asahi-proton %verb%"
+    "compatmanager_layer_name" "proton"
+}
