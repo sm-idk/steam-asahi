@@ -57,11 +57,13 @@ Or add the NixOS module to your flake:
 
           programs.steam-asahi = {
             enable = true;
-            users = [ "«username»" ];
             backend = "x86-fex";
             memoryMiB = 6144; # optional; useful on an 8 GiB machine
             vramMiB = 4096;   # optional reported GPU heap size
           };
+
+          # muvm is rootless, but needs access to /dev/kvm.
+          users.users."«username»".extraGroups = [ "kvm" ];
 
           nixpkgs.config.allowUnfree = true;
         }
@@ -81,7 +83,6 @@ upstream access policy for native PipeWire portal clients.
 | Module option                            | Purpose                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------- |
 | `backend`                                | `"x86-fex"` (default) or `"arm64"`                                   |
-| `users`                                  | Trusted users to add to the `kvm` group                              |
 | `memoryMiB`                              | Optional guest memory ceiling                                        |
 | `vramMiB`                                | Optional video-memory heap size reported inside the guest            |
 | `extraEnv`                               | Variables merged with the backend defaults; use `null` to remove one |

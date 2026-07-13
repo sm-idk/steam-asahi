@@ -205,17 +205,6 @@ in
         Local Network Game Transfers.
       '';
     };
-
-    users = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
-      example = [ "alice" ];
-      description = ''
-        Users to add to the `kvm` group so they can start the rootless muvm
-        guest. Membership grants access to hardware virtualization and should
-        only be given to trusted users.
-      '';
-    };
   };
 
   config = mkMerge [
@@ -250,11 +239,17 @@ in
         }
       ];
 
-      warnings = optional (!hasPulseAudioServer) ''
-        `programs.steam-asahi` expects a PulseAudio-compatible socket, but
-        neither PipeWire with `services.pipewire.pulse.enable` nor
-        `services.pulseaudio.enable` is enabled. Steam may have no audio.
-      '';
+      warnings =
+        optional (!hasPulseAudioServer) ''
+          `programs.steam-asahi` expects a PulseAudio-compatible socket, but
+          neither PipeWire with `services.pipewire.pulse.enable` nor
+          `services.pulseaudio.enable` is enabled. Steam may have no audio.
+        ''
+        ++ optional (config.users.groups.kvm.members == [ ]) ''
+          `programs.steam-asahi` requires access to `/dev/kvm`, but no users
+          belong to the `kvm` group. Add each trusted user with
+          `users.users.<name>.extraGroups = [ "kvm" ];`.
+        '';
 
       environment.systemPackages = [
         cfg.package
@@ -267,8 +262,6 @@ in
       # steam-hardware supplies the standard controller and input udev rules.
       hardware.graphics.enable = true;
       hardware.steam-hardware.enable = true;
-
-      users.groups.kvm.members = cfg.users;
 
       services.pipewire.wireplumber.configPackages =
         optionals (config.services.pipewire.wireplumber.enable)

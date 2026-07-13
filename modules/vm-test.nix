@@ -83,7 +83,6 @@ hostPkgs.testers.runNixOSTest (
         memoryMiB = 1536;
         package = probePackage;
         vramMiB = 768;
-        users = [ "alice" ];
         remotePlay.openFirewall = true;
         dedicatedServer.openFirewall = true;
         localNetworkGameTransfers.openFirewall = true;
@@ -94,7 +93,10 @@ hostPkgs.testers.runNixOSTest (
         pulse.enable = true;
       };
 
-      users.users.alice.isNormalUser = true;
+      users.users.alice = {
+        isNormalUser = true;
+        extraGroups = [ "kvm" ];
+      };
       virtualisation.memorySize = 768;
     };
 

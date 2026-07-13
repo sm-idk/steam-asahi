@@ -62,11 +62,11 @@ let
   mkAarch64System = mkSystem "aarch64-linux";
 
   defaults = mkAarch64System {
-    programs.steam-asahi.users = [ "alice" ];
     services.pipewire = {
       enable = true;
       pulse.enable = true;
     };
+    users.users.alice.extraGroups = [ "kvm" ];
   };
 
   arm64 = mkAarch64System {
@@ -313,6 +313,8 @@ assert builtins.length (steamAsahiFailures wrongPlatform) == 1;
 assert any (
   warning: hasInfix "expects a PulseAudio-compatible socket" warning
 ) noAudio.config.warnings;
+assert any (warning: hasInfix "requires access to `/dev/kvm`" warning) arm64.config.warnings;
+assert !(any (warning: hasInfix "requires access to `/dev/kvm`" warning) defaults.config.warnings);
 pkgs.runCommand "steam-asahi-nixos-module-test" { } ''
   ${optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-linux") ''
     test -f ${muvmWirePlumberConfig}/share/wireplumber/wireplumber.conf.d/50-muvm-access.conf
