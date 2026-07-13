@@ -251,6 +251,16 @@
         # that change. Replace the old Python env rather than appending another:
         # CMake finds the first `python3` on PATH.
         fex = prev.fex.overrideAttrs (old: {
+          postPatch = (old.postPatch or "") + ''
+            # FEX measures this timeout with CNTVCT_EL0 but tests it against a
+            # separate host clock. Allow a small amount of clock drift while
+            # still checking that the 250 ms timeout was observed.
+            substituteInPlace FEXCore/unittests/APITests/FutexSpinTest.cpp \
+              --replace-fail \
+                'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount));' \
+                'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount - std::chrono::milliseconds(1)));'
+          '';
+
           nativeBuildInputs =
             final.lib.filter (
               input:
