@@ -2,10 +2,64 @@
   lib,
   stdenvNoCC,
   fetchurl,
+  python3,
+  runCommand,
   unzip,
+  writeText,
 }:
 
-stdenvNoCC.mkDerivation {
+let
+  updaterFixtureManifest = writeText "steam-arm64-client-updater-manifest" ''
+    "linuxarm64"
+    {
+      "version" "2"
+      "bins_linuxarm64_linuxarm64"
+      {
+        "file" "bins_linuxarm64_linuxarm64.zip.fixture"
+        "sha2" "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  '';
+
+  updaterFixturePackage = writeText "steam-arm64-client-updater-input.nix" ''
+    let
+      decoy = {
+        version = "fixture";
+        src = fetchurl {
+          url = "https://example.invalid/fixture.zip";
+          hash = "sha256-fixture";
+        };
+      };
+    in
+    stdenvNoCC.mkDerivation (finalAttrs: {
+      version = "1";
+      src = fetchurl {
+        url = "https://client-update.fastly.steamstatic.com/old.zip";
+        hash = "sha256-old";
+      };
+    })
+  '';
+
+  updaterExpectedPackage = writeText "steam-arm64-client-updater-expected.nix" ''
+    let
+      decoy = {
+        version = "fixture";
+        src = fetchurl {
+          url = "https://example.invalid/fixture.zip";
+          hash = "sha256-fixture";
+        };
+      };
+    in
+    stdenvNoCC.mkDerivation (finalAttrs: {
+      version = "2";
+      src = fetchurl {
+        url = "https://client-update.fastly.steamstatic.com/bins_linuxarm64_linuxarm64.zip.fixture";
+        hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      };
+    })
+  '';
+in
+stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "steam-arm64-client";
   # Steam's public beta uses a Unix timestamp as its client version.
   version = "1783717985";
@@ -16,6 +70,7 @@ stdenvNoCC.mkDerivation {
   };
 
   nativeBuildInputs = [ unzip ];
+  strictDeps = true;
   dontUnpack = true;
   # Preserve Valve's payload byte-for-byte; it is copied to mutable user state
   # before execution and subsequently maintained by Steam's own updater.
@@ -72,13 +127,49 @@ stdenvNoCC.mkDerivation {
   passthru = {
     updateChannel = "publicbeta";
     manifestUrl = "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64";
+    updateScript = ./update.py;
+    tests = {
+      layout = runCommand "steam-arm64-client-layout-test" { } ''
+        share=${finalAttrs.finalPackage}/share/steam-arm64-client
+        client="$share/steamrtarm64"
+
+        test -x "$client/steam"
+        test -x "$client/steamwebhelper"
+        test -x "$client/steamwebhelper.sh"
+        test "$(readlink "$client/libs/libcurl.so")" = libcurl.so.4.8.0
+        test "$(readlink "$client/libs/libnghttp2.so")" = libnghttp2.so.14.20.1
+        test "$(readlink "$client/libs/libnghttp2.so.14")" = libnghttp2.so.14.20.1
+        test ! -e "$share/"'steamrtarm64\libs'
+        test ! -e "$share/"'steamrtarm64\swiftshader'
+        touch "$out"
+      '';
+
+      updateScript =
+        runCommand "steam-arm64-client-update-script-test"
+          {
+            nativeBuildInputs = [ python3 ];
+          }
+          ''
+            cp ${updaterFixturePackage} package.nix
+            python3 ${./update.py} \
+              --manifest-file ${updaterFixtureManifest} \
+              package.nix
+            diff -u ${updaterExpectedPackage} package.nix
+            touch "$out"
+          '';
+    };
   };
 
   meta = {
     description = "Bootstrap payload for Valve's public-beta ARM64 Steam client";
+    downloadPage = "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64";
     homepage = "https://store.steampowered.com/";
+    identifiers.purlParts = {
+      type = "generic";
+      spec = "valve/${finalAttrs.pname}@${finalAttrs.version}";
+    };
     license = lib.licenses.unfreeRedistributable;
     platforms = [ "aarch64-linux" ];
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
-}
+})
