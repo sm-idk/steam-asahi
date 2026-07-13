@@ -1,243 +1,189 @@
-# steam-asahi
+<h1 align="center">Steam Asahi</h1>
 
-Nix flake to run Steam on NixOS Asahi Linux (Apple Silicon) in a 4K-page
-`muvm` guest. The established backend runs the x86 Steam client through FEX;
-an experimental backend runs Valve's native ARM64 public beta.
+<p align="center"><strong>Steam on NixOS Asahi Linux, powered by a 4K-page microVM.</strong></p>
 
-<img width="3444" height="1967" alt="Image" src="https://github.com/user-attachments/assets/c8b4902b-3e69-43d7-8a21-29f91bb57f8f" />
+<p align="center">
+  <img alt="NixOS Asahi" src="https://img.shields.io/badge/NixOS-Asahi-5277C3?style=flat-square&amp;logo=nixos&amp;logoColor=white">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-aarch64-111111?style=flat-square&amp;logo=apple&amp;logoColor=white">
+  <img alt="x86 FEX and ARM64 backends" src="https://img.shields.io/badge/backends-x86%2FFEX%20%7C%20ARM64-5C6BC0?style=flat-square">
+  <img alt="Experimental project" src="https://img.shields.io/badge/status-experimental-F59E0B?style=flat-square">
+</p>
 
-> Picture generously provided by EliSaado from the #asahi-alt oftc IRC
+![Steam running on NixOS Asahi Linux](https://github.com/user-attachments/assets/c8b4902b-3e69-43d7-8a21-29f91bb57f8f)
 
-## Acknowledgements
+_Screenshot courtesy of EliSaado from `#asahi-alt` on OFTC IRC._
 
-Thanks to [ooonea's Codeberg fork](https://codeberg.org/ooonea/steam-asahi)
-for picking this back up and validating several fixes that are now carried here too:
-dropping the obsolete muvm/libkrun/libkrunfw source pins, handling FEX's XDG
-rootfs paths, adding a muvm memory cap, adding `steam-asahi --fex` diagnostics,
-avoiding the interactive rootfs fetcher fallback, and documenting the swap/zswap
-setup that makes this usable on low-RAM Apple Silicon machines.
+Steam expects 4K memory pages; Apple Silicon Linux hosts use 16K pages. This
+flake handles that mismatch with [`muvm`](https://github.com/AsahiLinux/muvm)
+and connects the guest to the accelerated Asahi GPU stack.
 
-## Warning
+## What you get
+
+- **One-command Steam** instead of a hand-built guest userspace.
+- **Two backends:** the regular x86 client through FEX, or Valve's experimental
+  native ARM64 client.
+- **NixOS integration** for graphics, controllers, KVM access, memory limits,
+  backend environment variables, and optional Steam service ports.
+- **Shared Steam data** when switching backends, without duplicating games.
 
 > [!WARNING]
-> **This project was primarily written by an LLM (AI). Review the code yourself before running it. Use at your own risk.**
+> **This is experimental and was primarily written by an LLM. Review the code
+> and use it at your own risk.**
 
-The launcher performs several potentially dangerous operations at runtime:
+## Install
 
-- **Bind-mounts over `/bin`, `/usr`, and `/etc`** inside the muvm guest to create an FHS-compatible environment for Steam
-- **Sets suid root on `fusermount` and `fusermount3`** (copied to `/run/wrappers/bin/`) so FEX can mount its rootfs overlay
-- **Downloads a ~1.3GB FEX rootfs** (Fedora 43) on first run via `FEXRootFSFetcher`
-- **Installs Steam bootstrap files** into `~/.local/share/steam-asahi/`
+Try it from a checkout:
 
-## Components
-
-The old local source overlays for muvm, libkrun, and libkrunfw have been removed:
-the required NixOS/Asahi fixes are upstream in nixpkgs now. The nixpkgs PR links
-below are kept as provenance for the fixes this repo originally carried as overlays.
-
-| Component | Version in current lock | Source / provenance |
-|-----------|-------------------------|---------------------|
-| **libkrunfw** | 5.5.0 (kernel 6.12.91) | stock nixpkgs-unstable; upstreamed via [NixOS/nixpkgs#505042](https://github.com/NixOS/nixpkgs/pull/505042) |
-| **libkrun** | 1.19.0 | stock nixpkgs-unstable; upstreamed via [NixOS/nixpkgs#505042](https://github.com/NixOS/nixpkgs/pull/505042) |
-| **muvm** | 0.6.0 | stock nixpkgs-unstable; NixOS guest path/FEX share patches upstreamed via [NixOS/nixpkgs#505382](https://github.com/NixOS/nixpkgs/pull/505382) |
-| **FEX-Emu** | 2605 | stock nixpkgs-unstable, with a temporary packaging-only Python `packaging` build fix |
-| **virglrenderer** | 1.3.0 | stock nixpkgs-unstable; Asahi DRM native context is upstream |
-| **x86 Steam bootstrap** | 1.0.0.85 | `steam-unwrapped` from nixpkgs-unstable |
-| **ARM64 beta bootstrap** | 1783717985 | Valve `steam_client_publicbeta_linuxarm64`, pinned client payload |
-
-The overlay adds the two launchers, the pinned ARM64 beta bootstrap, and the
-temporary FEX packaging hotfix noted above.
-
-## Upstreaming notes
-
-Things that should live in nixpkgs rather than this flake long-term:
-
-- **FEX Python build environment hotfix**: this flake backports
-  [NixOS/nixpkgs#540511](https://github.com/NixOS/nixpkgs/pull/540511).
-  Remove the override once that change reaches the locked nixpkgs revision.
-- **First-class `steam-asahi` package/module** if nixpkgs wants to support this
-  stack directly. That should carry the muvm/FEX-specific launcher workarounds:
-  FEX XDG rootfs detection, the muvm memory cap, the Steam/PressureVessel FHS
-  shims, Vulkan ICD/layer import handling, locale/charmap exposure, and
-  module-level conflict handling for regular `programs.steam` / host 32-bit
-  graphics.
-
-Things that should remain user/runtime state, not nixpkgs: the Steam client
-self-update tree, game libraries, shader caches, Proton prefixes, and the FEX
-rootfs downloaded by `FEXRootFSFetcher` unless nixpkgs grows an explicit pinned
-rootfs package.
-
-## Usage
-
-```sh
-nix develop # then run steam-asahi
+```console
+$ nix develop
+$ steam-asahi
 ```
 
-You can also use it as a NixOS module:
+Or add the NixOS module to your flake:
 
 ```nix
 {
-  inputs = {
-    steam-asahi = {
-      url = "github:sm-idk/steam-asahi";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+  inputs.steam-asahi = {
+    url = "github:sm-idk/steam-asahi";
+    inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs =
-    { nixpkgs, steam-asahi, ... }:
-    {
-      nixosConfigurations."«hostname»" = nixpkgs.lib.nixosSystem {
-        system = "aarch64-linux";
-        modules = [
-          steam-asahi.nixosModules.default
-          {
-            programs.steam-asahi = {
-              enable = true;
-              backend = "x86-fex"; # default
-              # backend = "arm64"; # experimental native client
+  outputs = { nixpkgs, steam-asahi, ... }: {
+    nixosConfigurations."«hostname»" = nixpkgs.lib.nixosSystem {
+      modules = [
+        steam-asahi.nixosModules.default
+        {
+          nixpkgs.hostPlatform = "aarch64-linux";
 
-              # Optional: on 8 GiB machines this leaves the compositor headroom.
-              memoryMiB = 6144;
-            };
+          programs.steam-asahi = {
+            enable = true;
+            users = [ "«username»" ];
+            backend = "x86-fex";
+            memoryMiB = 6144; # optional; useful on an 8 GiB machine
+            vramMiB = 4096;   # optional reported GPU heap size
+          };
 
-            # steam-unwrapped is unfree.
-            nixpkgs.config.allowUnfree = true;
-
-            # muvm is rootless, but needs /dev/kvm access.
-            users.users."«username»".extraGroups = [ "kvm" ];
-          }
-        ];
-      };
+          nixpkgs.config.allowUnfree = true;
+        }
+      ];
     };
+  };
 }
 ```
 
-Do **not** enable `programs.steam` or `hardware.graphics.enable32Bit` on
-`aarch64-linux`; 32-bit x86 support comes from the FEX rootfs. When
-`programs.steam-asahi.enable = true`, this module force-disables both
-incompatible options and emits an evaluation warning if something tries to enable
-them.
+Rebuild, then open **Steam Asahi** or run `steam-asahi`.
 
-## Experimental ARM64 client backend
+Do not also enable `programs.steam` or `hardware.graphics.enable32Bit`; the
+module reports both as configuration conflicts. Audio requires PipeWire Pulse
+or PulseAudio. When WirePlumber is enabled, the module also installs muvm's
+upstream access policy for native PipeWire portal clients.
 
-Set `programs.steam-asahi.backend = "arm64"` to use Valve's native ARM64
-public-beta client. It still runs in `muvm`: the beta binaries use 4K ELF
-alignment and cannot be assumed to run on Asahi's 16K-page host. Unlike the
-default backend, the Steam client, CEF, and runtime updater do not pass through
-FEX.
+| Module option                            | Purpose                                                              |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `backend`                                | `"x86-fex"` (default) or `"arm64"`                                   |
+| `users`                                  | Trusted users to add to the `kvm` group                              |
+| `memoryMiB`                              | Optional guest memory ceiling                                        |
+| `vramMiB`                                | Optional video-memory heap size reported inside the guest            |
+| `extraEnv`                               | Variables merged with the backend defaults; use `null` to remove one |
+| `remotePlay.openFirewall`                | Open and forward ports for Steam Remote Play                         |
+| `dedicatedServer.openFirewall`           | Open and forward Source Dedicated Server ports                       |
+| `localNetworkGameTransfers.openFirewall` | Open and forward local game-transfer ports                           |
 
-The development shell exposes unambiguous commands for both backends:
+The three firewall options configure both the NixOS host firewall and
+`muvm`/passt guest-to-host port publication. They are disabled by default.
 
-```sh
-nix develop
-steam-asahi-arm64 --guest getconf PAGESIZE # should print 4096
-steam-asahi-arm64 --guest uname -m         # should print aarch64
-steam-asahi-arm64-test                     # launch with isolated test state
-steam-asahi-arm64-test --import-login      # copy normal login into test state
+## Backends
+
+|                 | x86/FEX               | Native ARM64 beta                              |
+| --------------- | --------------------- | ---------------------------------------------- |
+| Steam client    | Standard x86 client   | Valve public beta                              |
+| Recommended?    | **Yes**               | Testing only                                   |
+| Windows games   | Standard Proton route | ARM Proton 11 route                            |
+| Linux x86 games | FEX                   | Use FEX separately or select the Windows build |
+
+Both run inside `muvm` because both clients need a 4K-page environment.
+
+The ARM64 login screen may get stuck at **Waiting for network**. Log in once
+with x86/FEX, then copy that login into isolated test state:
+
+```console
+$ nix develop
+$ steam-asahi-arm64-test --import-login
 ```
 
-`steam-asahi-arm64` uses the normal `~/.local/share/Steam` state.
-`steam-asahi-arm64-test` instead changes `HOME` and all XDG state directories to
-`~/.local/share/steam-asahi-arm64-test-home`, avoiding changes to the normal
-Steam installation. Override that location with `STEAM_ASAHI_ARM64_TEST_HOME`.
-This is state isolation for testing, not a security sandbox.
+For Windows games on ARM64, install **Proton 11.0 (ARM64)** (AppID `4628740`)
+and **Steam Linux Runtime 4.0 - Arm64** (AppID `4185400`). The launcher then
+registers the compatibility tool automatically.
 
-The beta's unauthenticated ARM64 login screen can remain at **Waiting for
-network** even when connectivity succeeds. First log in with the x86/FEX client,
-then use `steam-asahi-arm64-test --import-login`. This copies `local.vdf`,
-`loginusers.vdf`, `config.vdf`, and the Steam registry into the isolated state;
-it does not modify the normal installation. Those files include a persistent
-login credential, so protect or remove the test directory as you would normal
-Steam state.
+> [!NOTE]
+> Both backends use `~/.local/share/Steam`. Back it up before testing the ARM64
+> beta; the isolated test command stores its copy under
+> `~/.local/share/steam-asahi-arm64-test-home`.
 
-The packages can also be run without entering the development shell:
+## First launch
 
-```sh
-nix run .#steam-asahi-arm64
-nix run .#steam-asahi-arm64 -- --guest getconf PAGESIZE
-```
+The x86 backend downloads a roughly 1.3 GB Fedora 43 FEX rootfs. Inside the
+microVM it creates a temporary FHS layout and setuid `fusermount` wrappers.
+Steam state and the downloaded rootfs remain in your user data.
 
-The package pins Valve's public-beta bootstrap payload declaratively. Steam then
-self-updates in its normal mutable state under `~/.local/share/Steam`; games,
-compatibility tools, shader caches, and client updates are intentionally not Nix
-store state. Both backends currently share that Steam data directory, making
-backend switching possible without duplicating the game library. Back up the
-state before testing: the ARM64 client is unpublished beta software and may
-change its on-disk state.
-
-### ARM Proton 11
-
-Valve publishes **Proton 11.0 (ARM64)** as Steam AppID `4628740` and its
-required **Steam Linux Runtime 4.0 - Arm64** as AppID `4185400`. Install both
-through Steam in the ARM64 profile (the `steam://install/APPID` URLs can be
-used). Valve's current ARM beta does not include either app in the
-compatibility-tool registry it downloads, even after both are installed.
-
-When both official payloads are present, the launcher creates a small managed
-entry under `Steam/compatibilitytools.d/steam-asahi-proton-11-arm64`. It does
-not modify or copy Valve's files: it links to the Steam-managed installations
-and composes Runtime 4 around Proton. **Proton 11.0 (ARM64)** then appears in
-the per-game and default compatibility-tool menus after restarting Steam.
-Selecting it for a Linux-native title makes Steam replace that installation
-with the Windows depot, as with any other Proton selection.
-
-The wrapper also works around two current beta issues: local tools are
-registered as AppID 0 (which otherwise selects `compatdata/0`), and Proton's
-ARM64 Python interpreter does not automatically see Pressure Vessel's captured
-host libraries. Diagnostic output is appended to
-`compatibilitytools.d/steam-asahi-proton-11-arm64/steam-asahi-proton.log` and
-rotated at launcher startup after it exceeds 1 MiB.
-
-This has launched a Windows game through Runtime 4, ARM Proton, Wine/FEX, and
-the Asahi Vulkan stack. Compatibility remains game-specific; anti-cheat and
-other Proton limitations still apply. x86 Linux-native games still need a
-separate FEX compatibility path unless their Windows build is selected through
-ARM Proton.
-
-## Recommended host settings
-
-Steam + Proton + FEX can put a lot of pressure on 8 GiB and 16 GiB systems. Mirroring Fedora Asahi's memory tier helps a lot:
-
-```nix
-swapDevices = [
-  {
-    device = "/var/lib/swapfile";
-    size = 12 * 1024; # MiB
-  }
-];
-
-boot.kernelParams = [
-  "zswap.enabled=1"
-  "zswap.compressor=zstd"
-  "zswap.zpool=zsmalloc"
-  "zswap.max_pool_percent=20"
-];
-
-boot.kernel.sysctl = {
-  "vm.swappiness" = 100;
-  "vm.page-cluster" = 0;
-  "vm.watermark_scale_factor" = 125;
-  "vm.max_map_count" = 1048576;
-};
-```
-
-Audio expects PipeWire's PulseAudio compatibility socket:
-
-```nix
-services.pipewire = {
-  enable = true;
-  alsa.enable = true;
-  pulse.enable = true;
-};
-```
+You need NixOS on Apple Silicon, `/dev/kvm` access, working host graphics, and a
+PulseAudio-compatible socket. Steam, Proton, and FEX are memory-heavy; use
+`memoryMiB` and swap/zswap on lower-memory machines. `vramMiB` changes the
+Asahi driver's reported heap size without reserving that memory up front.
 
 ## Diagnostics
 
-Run these in order:
-
-```sh
-muvm --interactive -- bash -c 'getconf PAGESIZE' # should print 4096
-steam-asahi --fex 'uname -m'                     # should print x86_64
-steam-asahi --fex 'vulkaninfo --summary'         # should list the Apple GPU
+```console
+$ muvm --interactive -- bash -c 'getconf PAGESIZE'  # 4096
+$ steam-asahi --fex 'uname -m'                      # x86_64
+$ steam-asahi --fex 'vulkaninfo --summary'          # Apple GPU
 ```
+
+Set `STEAM_ASAHI_NO_SPLASH=1` to disable the startup dialog.
+
+## Development
+
+```console
+$ nix fmt
+$ nix flake check -L
+$ ./pkgs/steam-arm64-client/update.py  # refresh the Valve public-beta pin
+```
+
+The flake checks package builds and layouts, the updater fixture, NixOS module
+evaluation, launcher behavior, ShellCheck/style policy, and a booted NixOS VM.
+Run or debug that VM test directly on the current host architecture with:
+
+```console
+$ system=$(nix eval --impure --raw --expr builtins.currentSystem)
+$ nix build ".#nixosTests.$system.steam-asahi-module" -L
+$ nix run ".#nixosTests.$system.steam-asahi-module.driverInteractive"
+```
+
+The x86_64 VM uses test doubles for the architecture-specific payloads while
+exercising the enabled module's system integration. On aarch64-linux, the VM is
+a native aarch64 NixOS test. The separate module-evaluation check always
+verifies that a real x86_64 configuration is rejected.
+
+Shell sources follow the
+[Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html):
+Bash launchers use strict options, arrays for argv, quoted expansions, local
+variables, `main`, two-space indentation, and an 80-column limit. The two Proton
+entry points remain POSIX `sh` because they execute inside Valve's constrained
+runtime. `nix flake check` runs ShellCheck plus the whitespace and line-length
+policy.
+
+Packages use nixpkgs' `writeShellApplication` with declared `runtimeInputs` and
+`inheritPath = false`. Any new external command must therefore be added to its
+launcher closure (or injected as an absolute store path), instead of leaking in
+from the developer's host `PATH`.
+
+## Thanks
+
+Huge thanks to [4evy](https://github.com/4evy), who has done much of the heavy
+lifting on this project. They introduced the shell launcher, NixOS module,
+and desktop integration, then helped carry the current overhaul across both
+backends, the module API, test coverage, and ARM Proton support.
+
+Thanks also to [ooonea's fork](https://codeberg.org/ooonea/steam-asahi) for
+reviving the project and validating many of the fixes now included here. The
+underlying `muvm`, `libkrun`, and Asahi graphics fixes are upstream in nixpkgs.
