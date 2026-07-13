@@ -20,11 +20,10 @@
       overlays.default = final: prev: {
         steam-asahi = final.callPackage ./pkgs/steam-asahi { };
 
-        # Temporary packaging-only fix for nixpkgs' fex 2605 under Python 3.14.
-        # The old source/version pin is gone: muvm, libkrun, libkrunfw and FEX
-        # all come from nixpkgs now. Drop this once nixpkgs adds `packaging` to
-        # fex's Python build environment. Replace nixpkgs' incomplete Python
-        # env rather than appending: CMake finds the first `python3` on PATH.
+        # Backport https://github.com/NixOS/nixpkgs/pull/540511 for FEX 2605
+        # under Python 3.14. Drop this override once the locked nixpkgs contains
+        # that change. Replace the old Python env rather than appending another:
+        # CMake finds the first `python3` on PATH.
         fex = prev.fex.overrideAttrs (old: {
           nativeBuildInputs =
             final.lib.filter (
@@ -38,7 +37,6 @@
                 ps: with ps; [
                   packaging
                   libclang
-                  setuptools
                 ]
               ))
             ];

@@ -48,9 +48,9 @@ The overlay now only adds the `steam-asahi` launcher package plus the temporary 
 
 Things that should live in nixpkgs rather than this flake long-term:
 
-- **FEX Python build environment hotfix**: add the missing Python `packaging`
-  dependency to nixpkgs' `fex` package and remove this flake's overlay once
-  merged.
+- **FEX Python build environment hotfix**: this flake backports
+  [NixOS/nixpkgs#540511](https://github.com/NixOS/nixpkgs/pull/540511).
+  Remove the override once that change reaches the locked nixpkgs revision.
 - **First-class `steam-asahi` package/module** if nixpkgs wants to support this
   stack directly. That should carry the muvm/FEX-specific launcher workarounds:
   FEX XDG rootfs detection, the muvm memory cap, the Steam/PressureVessel FHS
