@@ -5,7 +5,7 @@
   unzip,
 }:
 
-stdenvNoCC.mkDerivation (finalAttrs: {
+stdenvNoCC.mkDerivation {
   pname = "steam-arm64-client";
   # Steam's public beta uses a Unix timestamp as its client version.
   version = "1783717985";
@@ -81,4 +81,4 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     platforms = [ "aarch64-linux" ];
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
   };
-})
+}
