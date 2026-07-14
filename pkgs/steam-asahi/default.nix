@@ -24,6 +24,7 @@
   lsb-release,
   glibc,
   steam-unwrapped,
+  muvmHostMount ? "/run/muvm-host",
   memoryMiB ? null,
   vramMiB ? null,
   publishPorts ? [ ],
@@ -148,13 +149,15 @@ let
           ${./scripts/launcher.sh} \
           ${./scripts/lspci.sh}
 
-        diagnostic_output=$(bash ${./scripts/fex-diagnostic.sh} \
-          'printf "%s" "hello world"')
+        diagnostic_output=$(bash -c \
+          'exec ${lib.getExe bash} "$@"' steam-asahi-fex \
+          ${./scripts/fex-diagnostic.sh} 'printf "%s" "hello world"')
         test "$diagnostic_output" = 'hello world'
 
         steam_output=$(GIO_EXTRA_MODULES=/host/gio XDG_DATA_DIRS=/host/share \
           STEAM_ASAHI_GUEST_UID=1234 \
-          bash ${./scripts/fex-steam.sh} \
+          bash -c 'exec ${lib.getExe bash} "$@"' steam-asahi-fex \
+          ${./scripts/fex-steam.sh} \
           bash -c 'printf "%s|%s|%s|%s|%s" "$1" "$2" "$PULSE_SERVER" "''${GIO_EXTRA_MODULES-unset}" "$XDG_DATA_DIRS"' \
           steam-asahi 'one two' 'semi;colon')
         test "$steam_output" = \
@@ -185,6 +188,7 @@ let
       FEX_STEAM_SCRIPT = "${./scripts/fex-steam.sh}";
       INIT_SCRIPT = lib.getExe initScript;
       MUVM = lib.getExe muvm;
+      MUVM_HOST_MOUNT = muvmHostMount;
       MUVM_MEMORY_ARGS = lib.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
       MUVM_NETWORK_ARGS = lib.concatMap (specification: [
         "--publish"

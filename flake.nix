@@ -183,7 +183,9 @@
               ${./pkgs/steam-asahi-arm64/proton/run-proton} \
               ${./pkgs/steam-asahi-arm64/proton/steam-asahi-proton}
 
-            diagnostic_output=$(BASH_ENV= PATH= ${x86TestPkgs.bash}/bin/bash \
+            diagnostic_output=$(BASH_ENV= PATH= \
+              ${x86TestPkgs.bash}/bin/bash -c \
+              'exec ${x86TestPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
               ${./pkgs/steam-asahi/scripts/fex-diagnostic.sh} \
               'printf "%s" "$PATH"')
             test "$diagnostic_output" = /usr/local/bin:/usr/bin:/bin
@@ -191,7 +193,8 @@
             steam_output=$(BASH_ENV= PATH= GIO_EXTRA_MODULES=/host/gio \
               XDG_DATA_DIRS=/host/share \
               STEAM_ASAHI_GUEST_UID=1234 \
-              ${x86TestPkgs.bash}/bin/bash \
+              ${x86TestPkgs.bash}/bin/bash -c \
+              'exec ${x86TestPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
               ${./pkgs/steam-asahi/scripts/fex-steam.sh} \
               ${x86TestPkgs.bash}/bin/bash -c \
               'printf "%s|%s|%s|%s|%s|%s" "$1" "$2" "$PULSE_SERVER" "$PATH" "''${GIO_EXTRA_MODULES-unset}" "$XDG_DATA_DIRS"' \

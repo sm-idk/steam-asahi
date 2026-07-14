@@ -43,6 +43,7 @@ let
     muvm = fakeMuvm;
     fex = fakeFex;
     steam-unwrapped = fakeSteam;
+    muvmHostMount = "/tmp/steam-asahi-muvm-host";
     memoryMiB = 4096;
     vramMiB = 2048;
     publishPorts = [
@@ -77,6 +78,14 @@ runCommand "steam-asahi-launcher-test" { } ''
   grep -Fx -- '--interactive' "$HOME/steam-arguments"
   grep -F -- 'PATH=/run/wrappers/bin:' "$HOME/steam-arguments"
   grep -F -- '/bin/FEXBash' "$HOME/steam-arguments"
+  fex_line=$(grep -Fn -- '/bin/FEXBash' "$HOME/steam-arguments" \
+    | cut -d: -f1)
+  test "$(sed -n "$((fex_line + 1))p" "$HOME/steam-arguments")" = \
+    'exec /bin/bash "$@"'
+  test "$(sed -n "$((fex_line + 2))p" "$HOME/steam-arguments")" = \
+    steam-asahi-fex
+  sed -n "$((fex_line + 3))p" "$HOME/steam-arguments" \
+    | grep -F -- '-fex-steam.sh'
   grep -Fx -- '-cef-force-occlusion' "$HOME/steam-arguments"
   grep -Fx -- 'TEST_ENVIRONMENT=value with spaces' "$HOME/steam-arguments"
   grep -Fx -- \
@@ -92,6 +101,14 @@ runCommand "steam-asahi-launcher-test" { } ''
   diagnostic_command='printf "%s\n" "hello world"'
   ${lib.getExe package} --fex "$diagnostic_command"
   grep -F -- '-fex-diagnostic.sh' "$HOME/muvm-arguments"
+  fex_line=$(grep -Fn -- '/bin/FEXBash' "$HOME/muvm-arguments" \
+    | cut -d: -f1)
+  test "$(sed -n "$((fex_line + 1))p" "$HOME/muvm-arguments")" = \
+    'exec /bin/bash "$@"'
+  test "$(sed -n "$((fex_line + 2))p" "$HOME/muvm-arguments")" = \
+    steam-asahi-fex
+  sed -n "$((fex_line + 3))p" "$HOME/muvm-arguments" \
+    | grep -F -- '-fex-diagnostic.sh'
   grep -Fx -- "$diagnostic_command" "$HOME/muvm-arguments"
   test "$(grep -Fxc -- '--publish' "$HOME/muvm-arguments")" = 2
   grep -Fx -- '--vram=2048' "$HOME/muvm-arguments"
@@ -102,6 +119,17 @@ runCommand "steam-asahi-launcher-test" { } ''
     printf '%s\n' 'multi-argument diagnostic unexpectedly succeeded' >&2
     exit 1
   fi
+
+  # Starting the host launcher from an existing muvm/FEX shell must fail
+  # before it attempts nested virtualization.
+  mkdir -p /tmp/steam-asahi-muvm-host
+  if ${lib.getExe package} 2>"$HOME/nested-muvm-error"; then
+    printf '%s\n' 'nested muvm launch unexpectedly succeeded' >&2
+    exit 1
+  fi
+  grep -Fx -- \
+    'ERROR: Already inside a muvm guest. Exit FEXBash and run steam-asahi on the host.' \
+    "$HOME/nested-muvm-error"
 
   touch "$out"
 ''

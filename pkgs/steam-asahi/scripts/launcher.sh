@@ -14,6 +14,7 @@ set -o pipefail
 : "${FEX_STEAM_SCRIPT:?internal configuration was not injected}"
 : "${INIT_SCRIPT:?internal configuration was not injected}"
 : "${MUVM:?internal configuration was not injected}"
+: "${MUVM_HOST_MOUNT:?internal configuration was not injected}"
 : "${MUVM_PATH:?internal configuration was not injected}"
 : "${STEAM_BOOTSTRAP:?internal configuration was not injected}"
 : "${YAD:?internal configuration was not injected}"
@@ -26,6 +27,7 @@ readonly FEX_ROOTFS_FETCHER
 readonly FEX_STEAM_SCRIPT
 readonly INIT_SCRIPT
 readonly MUVM
+readonly MUVM_HOST_MOUNT
 readonly -a MUVM_MEMORY_ARGS
 readonly -a MUVM_NETWORK_ARGS
 readonly MUVM_PATH
@@ -51,9 +53,20 @@ readonly -a CLEAN_ENVIRONMENT_ARGS=(
   LC_ALL=C.UTF-8
 )
 
+# FEXBash passes nonempty argv to `/bin/sh -c`. Use a command string that
+# makes the remaining argv actual arguments to our non-executable store script.
+readonly FEX_BASH_COMMAND='exec /bin/bash "$@"'
+
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+# muvm exposes the host filesystem at this mount point inside its guest. A
+# second muvm cannot start there because nested KVM is unavailable.
+reject_muvm_guest() {
+  [[ ! -d "${MUVM_HOST_MOUNT}" ]] || die \
+    'Already inside a muvm guest. Exit FEXBash and run steam-asahi on the host.'
 }
 
 # Detects an existing FEX rootfs across legacy and XDG layouts, downloading a
@@ -199,7 +212,8 @@ run_fex_diagnostic() {
     --interactive \
     -e "PATH=/run/wrappers/bin:${MUVM_PATH}:/usr/local/bin:/usr/bin:/bin" \
     -- \
-    "${FEX_BASH}" "${FEX_DIAGNOSTIC_SCRIPT}" "${command}"
+    "${FEX_BASH}" "${FEX_BASH_COMMAND}" steam-asahi-fex \
+    "${FEX_DIAGNOSTIC_SCRIPT}" "${command}"
 }
 
 run_steam() {
@@ -221,7 +235,8 @@ run_steam() {
     -e "STEAM_ASAHI_GUEST_UID=${EUID}" \
     "${EXTRA_ENVIRONMENT_ARGS[@]}" \
     -- \
-    "${FEX_BASH}" "${FEX_STEAM_SCRIPT}" \
+    "${FEX_BASH}" "${FEX_BASH_COMMAND}" steam-asahi-fex \
+    "${FEX_STEAM_SCRIPT}" \
     "${data_directory}/steam-launcher/bin_steam.sh" \
     -cef-force-occlusion \
     "$@"
@@ -232,6 +247,7 @@ main() {
   local data_directory="${data_home}/steam-asahi"
 
   (( EUID != 0 )) || die 'Do not run steam-asahi as root'
+  reject_muvm_guest
   ensure_fex_rootfs
 
   if [[ "${1:-}" == '--fex' ]]; then

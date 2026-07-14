@@ -123,6 +123,9 @@ registers the compatibility tool automatically.
 
 ## First launch
 
+Run `steam-asahi` directly from the host shell. Do not enter `muvm` or
+`FEXBash` first; the launcher creates and configures both layers itself.
+
 The x86 backend downloads a roughly 1.3 GB Fedora 43 FEX rootfs. Inside the
 microVM it creates a temporary FHS layout and setuid `fusermount` wrappers.
 Steam state and the downloaded rootfs remain in your user data.
