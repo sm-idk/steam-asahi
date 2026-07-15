@@ -65,18 +65,13 @@ readonly VULKAN_OVERRIDES="${PRESSURE_VESSEL_SHARE}/vulkan"
 
 link_commands() {
   local command_directory
-  local command_path
   local destination=$1
 
   for command_directory in \
     "${COREUTILS_BIN}" \
     "${GLIBC_BIN}" \
     "${EXTRA_COMMAND_DIRS[@]}"; do
-    for command_path in "${command_directory}"/*; do
-      ln -sf -- \
-        "${command_path}" \
-        "${destination}/$(basename -- "${command_path}")"
-    done
+    ln -sf -- "${command_directory}"/* "${destination}/"
   done
 }
 
@@ -124,18 +119,12 @@ materialize_etc_symlink() {
 # Populates the guest FHS with the dynamic linker and native Nix libraries.
 install_native_libraries() {
   local directory
-  local library_name
-  local path
 
   # Steam's own runtime takes precedence later. This fallback provides the
   # native dynamic linker and libraries needed by initial client probes.
   ln -sf -- "${LD_LINUX}" "${FHS_ROOT}/lib/ld-linux-aarch64.so.1"
-  for path in "${NATIVE_RUNTIME}"/lib/*; do
-    [[ -e "${path}" ]] || continue
-    library_name=$(basename -- "${path}")
-    for directory in "${LIBRARY_DIRECTORIES[@]}"; do
-      ln -sfn -- "${path}" "${directory}/${library_name}"
-    done
+  for directory in "${LIBRARY_DIRECTORIES[@]}"; do
+    ln -sfn -- "${NATIVE_RUNTIME}"/lib/* "${directory}/"
   done
 }
 

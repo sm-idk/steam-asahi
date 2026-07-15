@@ -279,7 +279,7 @@ let
     runtimeInputs = [ coreutils ];
     runtimeEnv = extraEnv;
     text = renderShell {
-      NATIVE_LIBRARY_PATH = lib.makeLibraryPath nativeLibraries;
+      NATIVE_LIBRARY_PATH = "${nativeRuntime}/lib";
     } ./scripts/guest.sh;
   };
 
