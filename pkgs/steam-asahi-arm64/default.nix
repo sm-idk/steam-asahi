@@ -254,6 +254,7 @@ let
         "passwd"
         "machine-id"
       ];
+      GETOPT = lib.getExe' util-linux "getopt";
       GLIBC_BIN = "${lib.getBin glibc}/bin";
       GLIBC_I18N = "${glibc}/share/i18n";
       LD_LINUX = "${lib.getLib glibc}/lib/ld-linux-aarch64.so.1";

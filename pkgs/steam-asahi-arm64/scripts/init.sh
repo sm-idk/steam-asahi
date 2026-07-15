@@ -10,6 +10,7 @@ set -o pipefail
 : "${BASH_BIN:?internal configuration was not injected}"
 : "${COREUTILS_BIN:?internal configuration was not injected}"
 : "${EXTRA_COMMAND_DIRS[*]:?internal configuration was not injected}"
+: "${GETOPT:?internal configuration was not injected}"
 : "${GLIBC_BIN:?internal configuration was not injected}"
 : "${GLIBC_I18N:?internal configuration was not injected}"
 : "${LD_LINUX:?internal configuration was not injected}"
@@ -32,6 +33,7 @@ readonly -a EXTRA_COMMAND_DIRS
 readonly -a ETC_STUB_DIRS
 readonly -a ETC_STUB_FILES
 readonly -a ETC_SYMLINKS_TO_MATERIALIZE
+readonly GETOPT
 readonly GLIBC_BIN
 readonly GLIBC_I18N
 readonly LD_LINUX
@@ -83,6 +85,7 @@ install_fhs_commands() {
 
   link_commands "${root}/bin"
   ln -sf -- "${BASH_BIN}" "${root}/bin/bash"
+  ln -sf -- "${GETOPT}" "${root}/bin/getopt"
   ln -sf -- "${SH_BIN}" "${root}/bin/sh"
   ln -sf -- "${LSPCI}" "${root}/bin/lspci"
   ln -sf -- "${LSB_RELEASE}" "${root}/bin/lsb_release"
@@ -91,6 +94,7 @@ install_fhs_commands() {
   ln -sf -- "${ZENITY}" "${root}/bin/zenity"
 
   link_commands "${root}/usr/bin"
+  ln -sf -- "${GETOPT}" "${root}/usr/bin/getopt"
   ln -sf -- "${root}/bin/lspci" "${root}/usr/bin/lspci"
   ln -sf -- "${LSB_RELEASE}" "${root}/usr/bin/lsb_release"
   ln -sf -- "${LSOF}" "${root}/usr/bin/lsof"

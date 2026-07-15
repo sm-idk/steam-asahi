@@ -88,6 +88,7 @@ test_sourceability() {
     ETC_STUB_DIRS=()
     ETC_STUB_FILES=()
     ETC_SYMLINKS_TO_MATERIALIZE=()
+    GETOPT=/bin/true
     GLIBC_BIN="${command_root}/glibc"
     GLIBC_I18N=/tmp
     LD_LINUX=/tmp/ld-linux
@@ -109,6 +110,10 @@ test_sourceability() {
     declare -F install_fhs_commands >/dev/null
     declare -F materialize_etc_symlink >/dev/null
     install_fhs_commands "${fhs_root}"
+    assert_equal /bin/true "$(readlink -- "${fhs_root}/bin/getopt")" \
+      'getopt FHS link'
+    assert_equal /bin/true "$(readlink -- "${fhs_root}/usr/bin/getopt")" \
+      'getopt usr FHS link'
     assert_equal /bin/true "$(readlink -- "${fhs_root}/bin/taskset")" \
       'taskset FHS link'
     assert_equal /bin/true "$(readlink -- "${fhs_root}/bin/lsof")" \
@@ -163,12 +168,18 @@ test_sourceability() {
 test_guest_launcher() {
   local expected_data_directories
   local expected_library_path
+  local guest_home="${TEST_ROOT}/guest-home"
   local guest_root="${TEST_ROOT}/guest"
   local -a guest_arguments
   local output="${guest_root}/output"
   local status_file="${guest_root}/attempts"
 
-  mkdir -p -- "${guest_root}/data home" "${output}"
+  mkdir -p -- \
+    "${guest_home}/.steam" \
+    "${guest_root}/data home" \
+    "${output}"
+  ln -s -- /x86/32 "${guest_home}/.steam/bin32"
+  ln -s -- /x86/64 "${guest_home}/.steam/bin64"
   printf '#!%s\n' "${TEST_BASH}" >"${guest_root}/restart-command"
   cat >>"${guest_root}/restart-command" <<'EOF'
 set -o errexit
@@ -195,6 +206,7 @@ EOF
     env -u LD_LIBRARY_PATH \
     NATIVE_LIBRARY_PATH=/declared/native \
     GIO_EXTRA_MODULES=/host/gio \
+    HOME="${guest_home}" \
     XDG_DATA_DIRS=/host/share \
     VK_DRIVER_FILES=/custom/vulkan.json \
     XDG_DATA_HOME="${guest_root}/data home" \
@@ -204,6 +216,10 @@ EOF
     --steam "${guest_root}/restart-command" 'argument with spaces' '*'
 
   assert_equal 2 "$(<"${status_file}")" 'guest restart count'
+  [[ ! -L ${guest_home}/.steam/bin32 ]] \
+    || fail 'guest did not remove the x86 32-bit overlay link'
+  [[ ! -L ${guest_home}/.steam/bin64 ]] \
+    || fail 'guest did not remove the x86 64-bit overlay link'
   expected_library_path="${guest_root}/data home/Steam/steamrtarm64:\
 ${guest_root}/data home/Steam/steamrtarm64/libs:\
 /run/opengl-driver/lib:/declared/native"

@@ -15,6 +15,19 @@ die() {
   exit 1
 }
 
+# Steam updates recreate x86 overlay links under ~/.steam. Preloading those
+# libraries into the ARM64 launch shell fails before Proton can start. The x86
+# client recreates its links when that backend is launched again.
+disable_x86_overlay_preloads() {
+  local link_name
+
+  for link_name in bin32 bin64; do
+    if [[ -L "${HOME}/.steam/${link_name}" ]]; then
+      rm -f -- "${HOME}/.steam/${link_name}"
+    fi
+  done
+}
+
 main() {
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
   local status
@@ -60,6 +73,7 @@ ${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}"
     (( $# > 0 )) || die 'the --steam option requires a command'
 
     while true; do
+      disable_x86_overlay_preloads
       if "$@"; then
         status=0
       else
