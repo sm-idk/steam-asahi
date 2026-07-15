@@ -145,6 +145,21 @@ $ steam-asahi --fex 'vulkaninfo --summary'          # Apple GPU
 
 Set `STEAM_ASAHI_NO_SPLASH=1` to disable the startup dialog.
 
+If a game reports `Could not setup connection to PulseAudio`, verify the host
+socket before launching Steam:
+
+```console
+$ test -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native"
+$ systemctl --user status pipewire-pulse.socket pipewire-pulse.service
+```
+
+On NixOS, enable `services.pipewire.enable` together with
+`services.pipewire.pulse.enable`, or enable `services.pulseaudio.enable`.
+Restart Steam Asahi after the socket appears because `muvm` attaches the host
+socket when it
+creates the microVM. The isolated ARM64 test launcher copies the current user's
+Pulse cookie into its test home for servers that require cookie authentication.
+
 ## Development
 
 ```console

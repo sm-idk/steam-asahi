@@ -378,6 +378,19 @@
               fi
 
               mkdir -p "$test_home"
+
+              source_pulse_cookie="$source_home/.config/pulse/cookie"
+              if [[ ! -f "$source_pulse_cookie" \
+                && -f "$source_home/.pulse-cookie" ]]; then
+                source_pulse_cookie="$source_home/.pulse-cookie"
+              fi
+              test_pulse_cookie="$test_home/.config/pulse/cookie"
+              if [[ -f "$source_pulse_cookie" \
+                && "$source_pulse_cookie" != "$test_pulse_cookie" ]]; then
+                mkdir -p "$(dirname "$test_pulse_cookie")"
+                install -m 0600 "$source_pulse_cookie" "$test_pulse_cookie"
+              fi
+
               if [[ "$import_login" == true ]]; then
                 source_steam="$source_data_home/Steam"
                 test_steam="$test_home/.local/share/Steam"

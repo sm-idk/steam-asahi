@@ -26,6 +26,7 @@ in
 runCommand "steam-asahi-arm64-launcher-test" { } ''
   export HOME="$TMPDIR/home with spaces"
   export XDG_DATA_HOME="$HOME/data"
+  export XDG_RUNTIME_DIR="$HOME/runtime"
   export STEAM_ASAHI_NO_SPLASH=1
 
   steamDirectory="$XDG_DATA_HOME/Steam"
@@ -39,9 +40,12 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   touch "$clientDirectory/pre-existing-file" "$protonDirectory/proton" "$runtimeDirectory/_v2-entry-point"
   chmod +x "$protonDirectory/proton" "$runtimeDirectory/_v2-entry-point"
 
-  ${lib.getExe package} steam://open/games
+  ${lib.getExe package} steam://open/games 2>"$HOME/audio-warning"
+  grep -F \
+    "WARNING: PulseAudio socket not found at $XDG_RUNTIME_DIR/pulse/native." \
+    "$HOME/audio-warning"
   # A second launch must be idempotent and refresh the managed integration.
-  ${lib.getExe package} steam://open/games
+  ${lib.getExe package} steam://open/games 2>>"$HOME/audio-warning"
 
   test -e "$clientDirectory/pre-existing-file"
   test -x "$clientDirectory/steam"

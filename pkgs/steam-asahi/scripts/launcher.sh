@@ -69,6 +69,18 @@ reject_muvm_guest() {
     'Already inside a muvm guest. Exit FEXBash and run steam-asahi on the host.'
 }
 
+warn_missing_audio_socket() {
+  local runtime_directory="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
+  local socket_path="${runtime_directory}/pulse/native"
+
+  [[ -S "${socket_path}" ]] && return
+  printf 'WARNING: PulseAudio socket not found at %s.\n' \
+    "${socket_path}" >&2
+  printf '%s\n' \
+    'Steam audio needs PipeWire Pulse or PulseAudio on the host.' \
+    'Enable one of them and restart Steam Asahi.' >&2
+}
+
 # Detects an existing FEX rootfs across legacy and XDG layouts, downloading a
 # pinned distro image only when no usable configuration exists.
 ensure_fex_rootfs() {
@@ -256,6 +268,7 @@ main() {
     run_fex_diagnostic "${1}"
   fi
 
+  warn_missing_audio_socket
   show_splash
   install_steam_bootstrap "${data_directory}"
   run_steam "${data_directory}" "$@"

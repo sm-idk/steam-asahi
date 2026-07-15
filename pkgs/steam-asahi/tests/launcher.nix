@@ -57,6 +57,7 @@ runCommand "steam-asahi-launcher-test" { } ''
   export HOME="$TMPDIR/home with spaces"
   export XDG_CONFIG_HOME="$HOME/config"
   export XDG_DATA_HOME="$HOME/data"
+  export XDG_RUNTIME_DIR="$HOME/runtime"
   export STEAM_ASAHI_NO_SPLASH=1
 
   data_directory="$XDG_DATA_HOME/steam-asahi"
@@ -64,7 +65,12 @@ runCommand "steam-asahi-launcher-test" { } ''
   mkdir -p "$rootfs_directory"
   touch "$rootfs_directory/test.sqsh"
 
-  ${lib.getExe package} 'steam://open/games?filter=ready to play'
+  ${lib.getExe package} \
+    'steam://open/games?filter=ready to play' \
+    2>"$HOME/audio-warning"
+  grep -F \
+    "WARNING: PulseAudio socket not found at $XDG_RUNTIME_DIR/pulse/native." \
+    "$HOME/audio-warning"
   cp "$HOME/muvm-arguments" "$HOME/steam-arguments"
 
   test -f "$data_directory/bootstrap-installed"

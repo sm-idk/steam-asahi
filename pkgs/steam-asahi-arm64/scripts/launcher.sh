@@ -61,6 +61,18 @@ die() {
   exit 1
 }
 
+warn_missing_audio_socket() {
+  local runtime_directory="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
+  local socket_path="${runtime_directory}/pulse/native"
+
+  [[ -S "${socket_path}" ]] && return
+  printf 'WARNING: PulseAudio socket not found at %s.\n' \
+    "${socket_path}" >&2
+  printf '%s\n' \
+    'Steam audio needs PipeWire Pulse or PulseAudio on the host.' \
+    'Enable one of them and restart Steam Asahi.' >&2
+}
+
 run_guest() {
   exec "${ENV_BIN}" \
     -u LANGUAGE \
@@ -239,6 +251,7 @@ main() {
     run_guest "$@"
   fi
 
+  warn_missing_audio_socket
   install_client_bootstrap
   configure_steam_state
   install_proton_integration
