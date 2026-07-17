@@ -19,12 +19,15 @@ fi
 : "${DEFAULT_STEAM_HOME_DIR:?internal configuration was not injected}"
 : "${DISPLAY_NAME:?internal configuration was not injected}"
 : "${ENV_BIN:?internal configuration was not injected}"
+: "${FLOCK:?internal configuration was not injected}"
 : "${GUEST_LAUNCHER:?internal configuration was not injected}"
 : "${HOST_LIBRARIES:?internal configuration was not injected}"
 : "${INIT_SCRIPT:?internal configuration was not injected}"
 : "${MUVM:?internal configuration was not injected}"
 : "${PROTON_DIRECTORY:?internal configuration was not injected}"
+: "${PROTON_CONFIGURATOR:?internal configuration was not injected}"
 : "${PROTON_RUNNER:?internal configuration was not injected}"
+: "${PROTON_TOOL_NAME:?internal configuration was not injected}"
 : "${PROTON_WRAPPER:?internal configuration was not injected}"
 : "${RUNTIME_APP_ID:?internal configuration was not injected}"
 : "${RUNTIME_DIRECTORY:?internal configuration was not injected}"
@@ -39,6 +42,7 @@ readonly CUSTOM_STEAM_HOME_DIR
 readonly DEFAULT_STEAM_HOME_DIR
 readonly DISPLAY_NAME
 readonly ENV_BIN
+readonly FLOCK
 readonly GUEST_LAUNCHER
 readonly HOST_LIBRARIES
 readonly INIT_SCRIPT
@@ -46,7 +50,9 @@ readonly -a MEMORY_ARGS
 readonly MUVM
 readonly -a NETWORK_ARGS
 readonly PROTON_DIRECTORY
+readonly PROTON_CONFIGURATOR
 readonly PROTON_RUNNER
+readonly PROTON_TOOL_NAME
 readonly PROTON_WRAPPER
 readonly RUNTIME_APP_ID
 readonly RUNTIME_DIRECTORY
@@ -129,6 +135,37 @@ warn_missing_audio_socket() {
   printf '%s\n' \
     'Steam audio needs PipeWire Pulse or PulseAudio on the host.' \
     'Enable one of them and restart Steam Asahi.' >&2
+}
+
+# Steam's PID belongs to the muvm guest and cannot be checked against the
+# host's /proc. Hold a host-side lock in a supervising flock process instead.
+run_with_steam_lock() {
+  local -i status
+  local lock_path="${STEAM_DIRECTORY}/.steam-asahi.lock"
+
+  mkdir -p -- "${STEAM_DIRECTORY}"
+  if "${FLOCK}" \
+    --nonblock \
+    --conflict-exit-code 73 \
+    "${lock_path}" \
+    "${ENV_BIN}" \
+    HOME="${SOURCE_HOME}" \
+    XDG_CONFIG_HOME="${SOURCE_CONFIG_HOME}" \
+    XDG_DATA_HOME="${SOURCE_DATA_HOME}" \
+    STEAM_ASAHI_LOCKED=1 \
+    "${BASH}" "$0" "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  if (( status == 73 )); then
+    if [[ "${1:-}" == '--force-proton' ]]; then
+      die 'Close Steam before changing a compatibility-tool mapping'
+    fi
+    die 'Steam Asahi is already running'
+  fi
+  exit "${status}"
 }
 
 run_guest() {
@@ -353,7 +390,9 @@ show_splash() {
 }
 
 main() {
+  local -a launcher_arguments=("$@")
   local import_login=false
+  local force_proton_app_id=
 
   (( EUID != 0 )) || die 'Do not run steam-asahi as root'
   initialize_steam_home
@@ -371,6 +410,20 @@ main() {
   fi
 
   printf 'Using isolated ARM64 Steam home: %s\n' "${HOME}"
+  if [[ "${STEAM_ASAHI_LOCKED:-0}" != 1 ]]; then
+    run_with_steam_lock "${launcher_arguments[@]}"
+  fi
+
+  if [[ "${1:-}" == '--force-proton' ]]; then
+    shift
+    (( $# > 0 )) || die 'usage: steam-asahi --force-proton APPID'
+    force_proton_app_id=$1
+    shift
+    if [[ ! "${force_proton_app_id}" =~ ^[1-9][0-9]*$ ]]; then
+      die 'APPID must be a positive decimal integer'
+    fi
+  fi
+
   warn_missing_audio_socket
   sync_pulse_cookie
   install_client_bootstrap
@@ -379,6 +432,19 @@ main() {
     import_login_state
   fi
   install_proton_integration
+  if [[ -n "${force_proton_app_id}" ]]; then
+    [[ -x "${PROTON_DIRECTORY_PATH}/proton" \
+      && -x "${RUNTIME_DIRECTORY_PATH}/_v2-entry-point" \
+      && -x "${COMPATIBILITY_DIRECTORY}/steam-asahi-proton" ]] \
+      || die \
+        "${DISPLAY_NAME} and Steam Linux Runtime 4.0 - Arm64" \
+        'must be installed'
+    "${PROTON_CONFIGURATOR}" \
+      "${STEAM_DIRECTORY}/config/config.vdf" \
+      "${force_proton_app_id}" \
+      "${PROTON_TOOL_NAME}"
+    set -- "steam://run/${force_proton_app_id}" "$@"
+  fi
   show_splash
 
   printf '%s\n' 'Launching native ARM64 Steam via muvm...'

@@ -139,6 +139,7 @@ test_sourceability() {
     DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home
     DISPLAY_NAME=Proton
     ENV_BIN=/usr/bin/env
+    FLOCK="$(command -v flock)"
     GUEST_LAUNCHER=/bin/true
     HOST_LIBRARIES=/tmp
     INIT_SCRIPT=/bin/true
@@ -146,7 +147,9 @@ test_sourceability() {
     MUVM=/bin/true
     NETWORK_ARGS=()
     PROTON_DIRECTORY=proton
+    PROTON_CONFIGURATOR=/bin/true
     PROTON_RUNNER=/bin/true
+    PROTON_TOOL_NAME=proton-test
     PROTON_WRAPPER=/bin/true
     RUNTIME_APP_ID=1
     RUNTIME_DIRECTORY=runtime
@@ -161,6 +164,7 @@ test_sourceability() {
     declare -F import_login_state >/dev/null
     declare -F initialize_steam_home >/dev/null
     declare -F install_managed_file >/dev/null
+    declare -F run_with_steam_lock >/dev/null
     declare -F sync_pulse_cookie >/dev/null
     declare -F write_managed_value >/dev/null
   )
@@ -373,6 +377,7 @@ EOF
 }
 
 test_launcher() {
+  local configurator_output="${TEST_ROOT}/launcher/configurator-arguments"
   local launcher_root="${TEST_ROOT}/launcher"
   local home="${launcher_root}/home with spaces"
   local output="${launcher_root}/muvm-arguments"
@@ -405,37 +410,57 @@ test_launcher() {
     "${launcher_root}/proton-wrapper" \
     "${steam_directory}/steamapps/common/Test Proton/proton" \
     "${steam_directory}/steamapps/common/Test Runtime/_v2-entry-point"
+  printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/configurator"
+  cat >>"${launcher_root}/configurator" <<'EOF'
+printf '%s\n' "$@" >"${TEST_CONFIGURATOR_OUTPUT}"
+EOF
+  chmod +x -- "${launcher_root}/configurator"
   printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/muvm"
   cat >>"${launcher_root}/muvm" <<'EOF'
 printf '%s\n' "$@" >"${TEST_MUVM_OUTPUT}"
+if [[ -n "${TEST_MUVM_HOLD_FILE:-}" ]]; then
+  touch -- "${TEST_MUVM_HOLD_FILE}.ready"
+  while [[ -e "${TEST_MUVM_HOLD_FILE}" ]]; do
+    sleep 0.05
+  done
+fi
 EOF
   chmod +x -- "${launcher_root}/muvm"
 
-  env \
-    CLIENT_BOOTSTRAP="${launcher_root}/bootstrap" \
-    CLIENT_UPDATE_CHANNEL=publicbeta \
-    COMPATIBILITY_TOOL_DIRECTORY=test-proton \
-    COMPATIBILITY_TOOL_VDF="${launcher_root}/compatibilitytool.vdf" \
-    CUSTOM_STEAM_HOME_DIR= \
-    DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home \
-    DISPLAY_NAME='Test Proton' \
-    ENV_BIN="$(command -v env)" \
-    GUEST_LAUNCHER=/guest-launcher \
-    HOME="${home}" \
-    HOST_LIBRARIES="${launcher_root}/host-libs" \
-    INIT_SCRIPT=/init-script \
-    MUVM="${launcher_root}/muvm" \
-    PROTON_DIRECTORY='Test Proton' \
-    PROTON_RUNNER="${launcher_root}/proton-runner" \
-    PROTON_WRAPPER="${launcher_root}/proton-wrapper" \
-    RUNTIME_APP_ID=123 \
-    RUNTIME_DIRECTORY='Test Runtime' \
-    STEAM_ASAHI_NO_SPLASH=1 \
-    TEST_MUVM_OUTPUT="${output}" \
-    TOOL_MANIFEST="${launcher_root}/toolmanifest.vdf" \
-    XDG_DATA_HOME="${home}/data" \
-    YAD=/bin/false \
-    bash "${PACKAGE_ROOT}/scripts/launcher.sh" 'steam://open/games'
+  run_test_launcher() {
+    env \
+      CLIENT_BOOTSTRAP="${launcher_root}/bootstrap" \
+      CLIENT_UPDATE_CHANNEL=publicbeta \
+      COMPATIBILITY_TOOL_DIRECTORY=test-proton \
+      COMPATIBILITY_TOOL_VDF="${launcher_root}/compatibilitytool.vdf" \
+      CUSTOM_STEAM_HOME_DIR= \
+      DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home \
+      DISPLAY_NAME='Test Proton' \
+      ENV_BIN="$(command -v env)" \
+      FLOCK="$(command -v flock)" \
+      GUEST_LAUNCHER=/guest-launcher \
+      HOME="${home}" \
+      HOST_LIBRARIES="${launcher_root}/host-libs" \
+      INIT_SCRIPT=/init-script \
+      MUVM="${launcher_root}/muvm" \
+      PROTON_DIRECTORY='Test Proton' \
+      PROTON_CONFIGURATOR="${launcher_root}/configurator" \
+      PROTON_RUNNER="${launcher_root}/proton-runner" \
+      PROTON_TOOL_NAME=proton_test \
+      PROTON_WRAPPER="${launcher_root}/proton-wrapper" \
+      RUNTIME_APP_ID=123 \
+      RUNTIME_DIRECTORY='Test Runtime' \
+      STEAM_ASAHI_NO_SPLASH=1 \
+      TEST_CONFIGURATOR_OUTPUT="${configurator_output}" \
+      TEST_MUVM_HOLD_FILE="${TEST_MUVM_HOLD_FILE:-}" \
+      TEST_MUVM_OUTPUT="${output}" \
+      TOOL_MANIFEST="${launcher_root}/toolmanifest.vdf" \
+      XDG_DATA_HOME="${home}/data" \
+      YAD=/bin/false \
+      bash "${PACKAGE_ROOT}/scripts/launcher.sh" "$@"
+  }
+
+  run_test_launcher --force-proton 250900
 
   [[ -x ${steam_directory}/steamrtarm64/steam ]] ||
     fail 'Steam bootstrap was not installed'
@@ -450,7 +475,36 @@ EOF
     fail 'managed host-library link was not installed'
   assert_file_contains_line "${output}" '--gpu-mode=drm'
   assert_file_contains_line "${output}" '--steam'
-  assert_file_contains_line "${output}" 'steam://open/games'
+  assert_file_contains_line "${output}" 'steam://run/250900'
+  assert_file_contains_line \
+    "${configurator_output}" \
+    "${steam_directory}/config/config.vdf"
+  assert_file_contains_line "${configurator_output}" 250900
+  assert_file_contains_line "${configurator_output}" proton_test
+
+  local hold_file="${launcher_root}/hold-muvm"
+  local running_pid
+  touch -- "${hold_file}"
+  TEST_MUVM_HOLD_FILE="${hold_file}" \
+    run_test_launcher steam://open/games \
+    >"${launcher_root}/running-output" \
+    2>&1 &
+  running_pid=$!
+  while [[ ! -e "${hold_file}.ready" ]]; do
+    kill -0 "${running_pid}" 2>/dev/null \
+      || fail 'background launcher exited before acquiring its lock'
+    sleep 0.05
+  done
+  if run_test_launcher --force-proton 250900 \
+    2>"${launcher_root}/lock-error"; then
+    fail 'a second launcher bypassed the host-side Steam lock'
+  fi
+  grep -F \
+    'ERROR: Close Steam before changing a compatibility-tool mapping' \
+    "${launcher_root}/lock-error" >/dev/null \
+    || fail 'the lock conflict did not explain how to proceed'
+  rm -f -- "${hold_file}"
+  wait "${running_pid}"
 
   if find "${steam_directory}" -name '.*.??????' -print -quit | grep -q .; then
     fail 'launcher left a managed-file temporary path behind'

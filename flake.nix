@@ -200,6 +200,7 @@
               x86TestPkgs.bash
               x86TestPkgs.coreutils
               x86TestPkgs.shellcheck
+              x86TestPkgs.util-linux
             ];
           }
           ''
@@ -436,6 +437,7 @@
             echo "ARM64 diagnostics:"
             echo "  steam-asahi-arm64 --guest uname -m"
             echo "  steam-asahi-arm64 --guest getconf PAGESIZE"
+            echo "  steam-asahi-arm64-test --force-proton APPID"
           '';
         };
     };

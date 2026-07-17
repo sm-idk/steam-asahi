@@ -101,7 +101,7 @@ The three firewall options configure both the NixOS host firewall and
 | Steam client    | Standard x86 client   | Valve public beta                              |
 | Recommended?    | **Yes**               | Testing only                                   |
 | Windows games   | Standard Proton route | ARM Proton 11 route                            |
-| Linux x86 games | FEX                   | Use FEX separately or select the Windows build |
+| Linux x86 games | FEX                   | Force the Windows build through ARM Proton     |
 
 Both run inside `muvm` because both clients need a 4K-page environment.
 
@@ -132,6 +132,27 @@ Arm64** (AppID [`4185400`](https://steamdb.info/app/4185400/)) inside the isolat
 client. The launcher then registers the compatibility tool automatically.
 Set `customSteamHomeDir` to use a different directory for the isolated ARM64
 HOME.
+
+Steam distinguishes depots by operating system, but not all Linux depots have
+ARM64 executables. If a game has an x86 Linux build, open its **Properties**,
+go to **Compatibility**, enable **Force the use of a specific Steam Play
+compatibility tool**, and select **Proton 11.0 (ARM64)**. Steam will replace
+the x86 Linux depot with the Windows depot and run it through ARM Proton. For
+example, The Binding of Isaac: Rebirth's Linux depot contains only i386 and
+x86-64 programs, so it cannot run natively in the ARM64 backend.
+
+The ARM64 launcher can apply that per-game setting and open the game in one
+step. Close any running Steam client first, then pass the numeric Steam AppID;
+for the isolated test launcher and Isaac:
+
+```console
+$ steam-asahi-arm64-test --force-proton 250900
+```
+
+Use `steam-asahi-arm64 --force-proton APPID` for normal ARM64 state, or
+`steam-asahi --force-proton APPID` when the NixOS module's backend is `arm64`.
+The command preserves a one-time `config.vdf.steam-asahi-backup` before changing
+Steam's per-game compatibility mapping.
 
 ## First launch
 

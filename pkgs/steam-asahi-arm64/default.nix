@@ -8,6 +8,7 @@
   replaceVars,
   runCommand,
   shellcheck,
+  python3,
   steam-arm64-client,
   steam-unwrapped,
   muvm,
@@ -289,6 +290,15 @@ let
     } ./scripts/guest.sh;
   };
 
+  protonConfigurator = writeShellApplication {
+    inheritPath = false;
+    name = "steam-asahi-arm64-configure-proton";
+    runtimeInputs = [ (python3.withPackages (packages: [ packages.vdf ])) ];
+    text = ''
+      exec python3 ${./scripts/configure-proton.py} "$@"
+    '';
+  };
+
   armProton = {
     compatibilityToolDirectory = "steam-asahi-proton-11-arm64";
     displayName = "Proton 11.0 (ARM64)";
@@ -321,6 +331,7 @@ let
           bash
           coreutils
           shellcheck
+          util-linux
         ];
       }
       ''
@@ -339,6 +350,7 @@ let
     name = "steam-asahi";
     runtimeInputs = [
       coreutils
+      util-linux
       yad
     ];
     text = renderShell {
@@ -350,6 +362,7 @@ let
       DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;
       ENV_BIN = lib.getExe' coreutils "env";
+      FLOCK = lib.getExe' util-linux "flock";
       GUEST_LAUNCHER = lib.getExe guestLauncher;
       HOST_LIBRARIES = "${nativeRuntime}/lib";
       INIT_SCRIPT = lib.getExe initScript;
@@ -360,7 +373,9 @@ let
         specification
       ]) publishPorts;
       PROTON_DIRECTORY = armProton.protonDirectory;
+      PROTON_CONFIGURATOR = lib.getExe protonConfigurator;
       PROTON_RUNNER = "${./proton/run-proton}";
+      PROTON_TOOL_NAME = armProton.toolName;
       PROTON_WRAPPER = "${./proton/steam-asahi-proton}";
       RUNTIME_APP_ID = armProton.runtimeAppId;
       RUNTIME_DIRECTORY = armProton.runtimeDirectory;

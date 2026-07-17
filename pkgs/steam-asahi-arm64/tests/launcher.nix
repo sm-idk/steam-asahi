@@ -69,10 +69,33 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   grep -F \
     "WARNING: PulseAudio socket not found at $XDG_RUNTIME_DIR/pulse/native." \
     "$HOME/audio-warning"
-  # A second launch must be idempotent, refresh the managed integration, and
-  # repair an accidentally permissive copy of the host authentication cookie.
+  cat >"$steamDirectory/config/config.vdf" <<'EOF'
+  "InstallConfigStore"
+  {
+    "Software"
+    {
+      "Valve"
+      {
+        "Steam"
+        {
+          "ExistingValue" "preserved"
+        }
+      }
+    }
+  }
+  EOF
+  # A second launch repairs the Pulse cookie, selects ARM Proton for one app,
+  # and opens that app so Steam can replace an incompatible Linux depot.
   chmod 0644 "$isolatedHome/.config/pulse/cookie"
-  ${lib.getExe package} steam://open/games 2>>"$HOME/audio-warning"
+  ${lib.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
+  configHash=$(sha256sum "$steamDirectory/config/config.vdf")
+  backupHash=$(sha256sum \
+    "$steamDirectory/config/config.vdf.steam-asahi-backup")
+  # Reapplying the same mapping must not rewrite either configuration file.
+  ${lib.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
+  test "$(sha256sum "$steamDirectory/config/config.vdf")" = "$configHash"
+  test "$(sha256sum \
+    "$steamDirectory/config/config.vdf.steam-asahi-backup")" = "$backupHash"
 
   test "$(stat -c %a "$isolatedHome/.config/pulse/cookie")" = 600
   test -e "$clientDirectory/pre-existing-file"
@@ -85,7 +108,6 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
     "$steamDirectory/linuxarm64"
   grep -Fx local-login "$steamDirectory/local.vdf"
   grep -Fx users-login "$steamDirectory/config/loginusers.vdf"
-  grep -Fx client-config "$steamDirectory/config/config.vdf"
   grep -Fx registry-login "$isolatedHome/.steam/registry.vdf"
   grep -Fx pulse-cookie "$isolatedHome/.config/pulse/cookie"
   grep -Fx local-login "$sourceDataHome/Steam/local.vdf"
@@ -100,6 +122,15 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   grep -F '"commandline" "/steam-asahi-proton %verb%"' "$compatibilityDirectory/toolmanifest.vdf"
   grep -F '"require_tool_appid" "4185400"' "$compatibilityDirectory/toolmanifest.vdf"
   grep -F '"use_sessions" "1"' "$compatibilityDirectory/toolmanifest.vdf"
+  grep -F '"ExistingValue"' "$steamDirectory/config/config.vdf"
+  grep -F '"250900"' "$steamDirectory/config/config.vdf"
+  grep -F '"name"' "$steamDirectory/config/config.vdf" \
+    | grep -F '"proton_11_arm64"'
+  test -f "$steamDirectory/config/config.vdf.steam-asahi-backup"
+  grep -F '"ExistingValue"' \
+    "$steamDirectory/config/config.vdf.steam-asahi-backup"
+  test "$(grep -Fc '"250900"' \
+    "$steamDirectory/config/config.vdf")" = 1
 
   grep -Fx "$isolatedHome" "$TEST_MUVM_OUTPUT.home"
   grep -Fx "$isolatedHome/.local/share" "$TEST_MUVM_OUTPUT.data-home"
@@ -112,7 +143,7 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   grep -Fx -- '--interactive' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '--steam' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '-cef-force-occlusion' "$TEST_MUVM_OUTPUT"
-  grep -Fx -- 'steam://open/games' "$TEST_MUVM_OUTPUT"
+  grep -Fx -- 'steam://run/250900' "$TEST_MUVM_OUTPUT"
 
   touch "$out"
 ''
