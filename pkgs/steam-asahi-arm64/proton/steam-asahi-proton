@@ -62,6 +62,20 @@ timestamp=$(date --iso-8601=seconds)
   printf '\n'
 } >>"${log_path}"
 
-exec >>"${log_path}" 2>&1
-exec "${tool_directory}/runtime/_v2-entry-point" --verb="${verb}" -- \
-  "${tool_directory}/run-proton" "${verb}" "$@"
+set +e
+"${tool_directory}/runtime/_v2-entry-point" --verb="${verb}" -- \
+  "${tool_directory}/run-proton" "${verb}" "$@" \
+  >>"${log_path}" 2>&1
+status=$?
+set -e
+
+if [ "${status}" -ne 0 ]; then
+  {
+    printf 'ERROR: Proton compatibility command exited with status %s.\n' \
+      "${status}"
+    printf 'Last 80 lines from %s:\n' "${log_path}"
+    tail -n 80 -- "${log_path}"
+  } >&2
+fi
+
+exit "${status}"

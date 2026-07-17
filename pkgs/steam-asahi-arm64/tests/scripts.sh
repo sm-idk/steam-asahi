@@ -309,6 +309,7 @@ EOF
 
 test_proton_wrapper() {
   local output="${TEST_ROOT}/proton-wrapper/output"
+  local standard_error="${TEST_ROOT}/proton-wrapper/stderr"
   local tool="${TEST_ROOT}/proton-wrapper/tool with spaces"
   local -a wrapper_arguments
 
@@ -322,6 +323,7 @@ test_proton_wrapper() {
 printf '%s\n' "${STEAM_COMPAT_APP_ID:-}" >"${TEST_OUTPUT}/app-id"
 printf '%s\n' "${STEAM_COMPAT_DATA_PATH:-}" >"${TEST_OUTPUT}/compat-data"
 printf '%s\n' "$@" >"${TEST_OUTPUT}/arguments"
+printf 'runtime output for app %s\n' "${STEAM_COMPAT_APP_ID:-unset}"
 exit 31
 EOF
   chmod +x -- "${tool}/runtime/_v2-entry-point"
@@ -330,7 +332,8 @@ EOF
     env SteamAppId=12345 \
     STEAM_COMPAT_DATA_PATH="${TEST_ROOT}/compatdata/0/" \
     TEST_OUTPUT="${output}" \
-    "${tool}/steam-asahi-proton" run 'argument with spaces'
+    "${tool}/steam-asahi-proton" run 'argument with spaces' \
+    2>"${standard_error}"
 
   assert_equal 12345 "$(<"${output}/app-id")" 'recovered Steam app ID'
   assert_equal \
@@ -349,6 +352,11 @@ EOF
   assert_file_contains_line \
     "${tool}/steam-asahi-proton.log" \
     'command: <argument with spaces>'
+  assert_file_contains_line \
+    "${standard_error}" \
+    'ERROR: Proton compatibility command exited with status 31.'
+  grep -F -- 'runtime output for app 12345' "${standard_error}" >/dev/null \
+    || fail 'Proton failure output was not replayed to standard error'
 
   run_expect_status 31 \
     env SteamAppId=0 \

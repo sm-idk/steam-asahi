@@ -157,6 +157,13 @@ $ steam-asahi --fex 'vulkaninfo --summary'          # Apple GPU
 
 Set `STEAM_ASAHI_NO_SPLASH=1` to disable the startup dialog.
 
+If an ARM64 game launch stops immediately after warnings about
+`gameoverlayrenderer.so`, first check whether the game installed an x86
+Linux executable. Those preload warnings are non-fatal. Force **Proton 11.0
+(ARM64)** as described above. Actual compatibility-tool failures are recorded in
+`~/.local/share/Steam/compatibilitytools.d/steam-asahi-proton-11-arm64/steam-asa
+hi-proton.log` and their final lines are also printed to the terminal.
+
 If a game reports `Could not setup connection to PulseAudio`, verify the host
 socket before launching Steam:
 
