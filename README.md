@@ -1,3 +1,6 @@
+> [!WARNING]
+> **This is experimental and was heavily assited by an LLM**
+
 <h1 align="center">Steam Asahi</h1>
 
 <p align="center"><strong>Steam on NixOS Asahi Linux, powered by a 4K-page microVM.</strong></p>
@@ -26,10 +29,6 @@ and connects the guest to the accelerated Asahi GPU stack.
   backend environment variables, and optional Steam service ports.
 - **Isolated ARM64 state by default** so experimental ARM tools and Proton
   prefixes cannot corrupt an x86 Steam installation.
-
-> [!WARNING]
-> **This is experimental and was primarily written by an LLM. Review the code
-> and use it at your own risk.**
 
 ## Install
 
