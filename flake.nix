@@ -249,10 +249,6 @@
         steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
         steam-asahi = final.callPackage ./pkgs/steam-asahi { };
 
-        # Backport https://github.com/NixOS/nixpkgs/pull/540511 for FEX 2605
-        # under Python 3.14. Drop this override once the locked nixpkgs contains
-        # that change. Replace the old Python env rather than appending another:
-        # CMake finds the first `python3` on PATH.
         fex = prev.fex.overrideAttrs (old: {
           postPatch = (old.postPatch or "") + ''
             # FEX measures this timeout with CNTVCT_EL0 but tests it against a
@@ -263,22 +259,6 @@
                 'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount));' \
                 'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount - std::chrono::milliseconds(1)));'
           '';
-
-          nativeBuildInputs =
-            final.lib.filter (
-              input:
-              !(
-                final.lib.hasPrefix "python3-" (input.name or "") && final.lib.hasSuffix "-env" (input.name or "")
-              )
-            ) old.nativeBuildInputs
-            ++ [
-              (final.python3.withPackages (
-                ps: with ps; [
-                  packaging
-                  libclang
-                ]
-              ))
-            ];
         });
       };
 
