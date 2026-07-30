@@ -96,9 +96,44 @@
                   printf '%s\n' 'Shell sources must use spaces, not tabs.' >&2
                   exit 1
                 fi
+                if grep -R -nE '[[:blank:]]+$' ${shellSources}; then
+                  printf '%s\n' 'Shell sources have trailing whitespace.' >&2
+                  exit 1
+                fi
+                if grep -R -n $'\r' ${shellSources}; then
+                  printf '%s\n' 'Shell sources must use Unix line endings.' >&2
+                  exit 1
+                fi
 
                 mapfile -d "" shell_files \
                   < <(find ${shellSources} -type f -print0)
+                for shell_file in "''${shell_files[@]}"; do
+                  IFS= read -r first_line < "''${shell_file}"
+                  case "''${first_line}" in
+                    '#!/usr/bin/env bash')
+                      for option in errexit nounset pipefail; do
+                        if ! grep -Fqx "set -o ''${option}" \
+                          "''${shell_file}"; then
+                          printf '%s: missing strict option %s\n' \
+                            "''${shell_file}" "''${option}" >&2
+                          exit 1
+                        fi
+                      done
+                      if ! grep -Fqx 'main() {' "''${shell_file}"; then
+                        printf '%s: missing main function\n' \
+                          "''${shell_file}" >&2
+                        exit 1
+                      fi
+                      ;;
+                    '#!/bin/sh') ;;
+                    *)
+                      printf '%s: unsupported shell interpreter: %s\n' \
+                        "''${shell_file}" "''${first_line}" >&2
+                      exit 1
+                      ;;
+                  esac
+                done
+
                 awk '
                   length($0) > 80 {
                     printf "%s:%d: line exceeds 80 characters\n", FILENAME, FNR

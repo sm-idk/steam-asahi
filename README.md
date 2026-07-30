@@ -196,13 +196,21 @@ exercising the enabled module's system integration. On aarch64-linux, the VM is
 a native aarch64 NixOS test. The separate module-evaluation check always
 verifies that a real x86_64 configuration is rejected.
 
-Shell sources follow the
-[Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html):
-Bash launchers use strict options, arrays for argv, quoted expansions, local
-variables, `main`, two-space indentation, and an 80-column limit. The two Proton
-entry points remain POSIX `sh` because they execute inside Valve's constrained
-runtime. `nix flake check` runs ShellCheck plus the whitespace and line-length
-policy.
+Shell sources use the
+[Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
+as a baseline, not as a claim of complete conformance. They use strict Bash
+options, arrays for argv, safe expansion handling, local variables, `main`,
+two-space indentation, and an 80-column limit. A strict conformance claim would
+be inaccurate because several orchestration scripts exceed the guide's 100-line
+recommendation.
+
+The checked-in Bash files are non-executable source fragments. Their `env bash`
+headers help local tools. `writeShellApplication` gives each installed launcher
+an exact Bash path in the Nix store, so it does not depend on `/bin/bash` or the
+user's `PATH`.
+
+The two Proton entry points remain POSIX `sh` for Valve's constrained runtime.
+`nix flake check` runs ShellCheck and the repository's shell-style policy.
 
 Packages use nixpkgs' `writeShellApplication` with declared `runtimeInputs` and
 `inheritPath = false`. Any new external command must therefore be added to its
