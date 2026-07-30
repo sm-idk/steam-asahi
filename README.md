@@ -187,8 +187,8 @@ Run or debug that VM test directly on the current host architecture with:
 
 ```console
 $ system=$(nix eval --impure --raw --expr builtins.currentSystem)
-$ nix build ".#nixosTests.$system.steam-asahi-module" -L
-$ nix run ".#nixosTests.$system.steam-asahi-module.driverInteractive"
+$ nix build ".#checks.$system.steam-asahi-nixos-vm" -L
+$ nix run ".#checks.$system.steam-asahi-nixos-vm.driverInteractive"
 ```
 
 The x86_64 VM uses test doubles for the architecture-specific payloads while

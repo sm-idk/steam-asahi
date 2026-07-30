@@ -350,11 +350,6 @@
       };
       nixosModules.steam-asahi = self.nixosModules.default;
 
-      nixosTests = {
-        ${system}.steam-asahi-module = aarch64NixosVmTest;
-        x86_64-linux.steam-asahi-module = x86NixosVmTest;
-      };
-
       formatter = {
         ${system} = aarch64Formatter;
         x86_64-linux = x86Formatter;
