@@ -36,6 +36,8 @@ readonly STEAM_BOOTSTRAP
 readonly YAD
 
 readonly -a CLEAN_ENVIRONMENT_ARGS=(
+  -u BASH_ENV
+  -u ENV
   -u LANGUAGE
   -u LC_ADDRESS
   -u LC_COLLATE

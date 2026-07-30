@@ -46,6 +46,26 @@ readonly TOOL_MANIFEST
 readonly -a VRAM_ARGS
 readonly YAD
 
+readonly -a CLEAN_ENVIRONMENT_ARGS=(
+  -u BASH_ENV
+  -u ENV
+  -u LANGUAGE
+  -u LC_ADDRESS
+  -u LC_COLLATE
+  -u LC_CTYPE
+  -u LC_IDENTIFICATION
+  -u LC_MEASUREMENT
+  -u LC_MESSAGES
+  -u LC_MONETARY
+  -u LC_NAME
+  -u LC_NUMERIC
+  -u LC_PAPER
+  -u LC_TELEPHONE
+  -u LC_TIME
+  LANG=C.UTF-8
+  LC_ALL=C.UTF-8
+)
+
 readonly STEAM_DIRECTORY="${XDG_DATA_HOME:-${HOME}/.local/share}/Steam"
 readonly CLIENT_DIRECTORY="${STEAM_DIRECTORY}/steamrtarm64"
 readonly COMPATIBILITY_DIRECTORY=\
@@ -75,9 +95,7 @@ warn_missing_audio_socket() {
 
 run_guest() {
   exec "${ENV_BIN}" \
-    -u LANGUAGE \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
+    "${CLEAN_ENVIRONMENT_ARGS[@]}" \
     "${MUVM}" \
     --gpu-mode=drm \
     "${MEMORY_ARGS[@]}" \
