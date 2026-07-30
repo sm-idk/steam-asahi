@@ -371,9 +371,9 @@ let
     meta = {
       description = "Native ARM64 Steam beta launcher for 16K-page Asahi systems via muvm";
       homepage = "https://github.com/sm-idk/steam-asahi";
-      # The wrapper source is MIT, but the installable product closes over and
-      # launches Valve's unfree redistributable Steam client.
-      license = lib.licenses.unfreeRedistributable;
+      # The wrapper source has no license. The installable product also closes
+      # over and launches Valve's unfree redistributable Steam client.
+      license = lib.licenses.unfree;
       platforms = [ "aarch64-linux" ];
       mainProgram = "steam-asahi";
     };

@@ -297,14 +297,13 @@ assert
 assert defaults.pkgs.steam-asahi.pname == "steam-asahi";
 assert defaults.pkgs.steam-asahi.version == defaults.pkgs.steam-unwrapped.version;
 assert defaults.pkgs.steam-asahi.meta.homepage == "https://github.com/sm-idk/steam-asahi";
-assert defaults.pkgs.steam-asahi.meta.license == defaults.pkgs.lib.licenses.unfreeRedistributable;
+assert defaults.pkgs.steam-asahi.meta.license == defaults.pkgs.lib.licenses.unfree;
 assert defaults.pkgs.steam-asahi.meta.mainProgram == "steam-asahi";
 assert defaults.pkgs.steam-asahi.backend == "x86-fex";
 assert defaults.pkgs.steam-asahi-arm64.pname == "steam-asahi-arm64";
 assert defaults.pkgs.steam-asahi-arm64.version == steamArm64Client.version;
 assert defaults.pkgs.steam-asahi-arm64.meta.homepage == "https://github.com/sm-idk/steam-asahi";
-assert
-  defaults.pkgs.steam-asahi-arm64.meta.license == defaults.pkgs.lib.licenses.unfreeRedistributable;
+assert defaults.pkgs.steam-asahi-arm64.meta.license == defaults.pkgs.lib.licenses.unfree;
 assert defaults.pkgs.steam-asahi-arm64.meta.mainProgram == "steam-asahi";
 assert defaults.pkgs.steam-asahi-arm64.backend == "arm64";
 assert defaults.pkgs.steam-asahi-arm64.customSteamHomeDir == null;
