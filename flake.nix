@@ -341,70 +341,14 @@
               exec ${pkgs.steam-asahi-arm64}/bin/steam-asahi "$@"
             '';
           };
+          arm64TestPackage = pkgs.steam-asahi-arm64.override {
+            customSteamHomeDir = "steam-asahi-arm64-test-home";
+          };
           arm64TestCommand = pkgs.writeShellApplication {
             inheritPath = false;
             name = "steam-asahi-arm64-test";
-            runtimeInputs = [ pkgs.coreutils ];
             text = ''
-              source_home="$HOME"
-              source_data_home="''${XDG_DATA_HOME:-$HOME/.local/share}"
-              test_home_default="$source_data_home/steam-asahi-arm64-test-home"
-              test_home="''${STEAM_ASAHI_ARM64_TEST_HOME:-$test_home_default}"
-
-              import_login=false
-              if [[ "''${1:-}" == "--import-login" ]]; then
-                import_login=true
-                shift
-              fi
-
-              mkdir -p "$test_home"
-
-              source_pulse_cookie="$source_home/.config/pulse/cookie"
-              if [[ ! -f "$source_pulse_cookie" \
-                && -f "$source_home/.pulse-cookie" ]]; then
-                source_pulse_cookie="$source_home/.pulse-cookie"
-              fi
-              test_pulse_cookie="$test_home/.config/pulse/cookie"
-              if [[ -f "$source_pulse_cookie" \
-                && "$source_pulse_cookie" != "$test_pulse_cookie" ]]; then
-                mkdir -p "$(dirname "$test_pulse_cookie")"
-                install -m 0600 "$source_pulse_cookie" "$test_pulse_cookie"
-              fi
-
-              if [[ "$import_login" == true ]]; then
-                source_steam="$source_data_home/Steam"
-                test_steam="$test_home/.local/share/Steam"
-                if [[ ! -f "$source_steam/local.vdf" \
-                  || ! -f "$source_steam/config/loginusers.vdf" \
-                  || ! -f "$source_steam/config/config.vdf" ]]; then
-                  printf 'ERROR: incomplete Steam login under %s\n' \
-                    "$source_steam" >&2
-                  exit 1
-                fi
-                mkdir -p "$test_steam/config" "$test_home/.steam"
-                cp -a "$source_steam/local.vdf" "$test_steam/local.vdf"
-                cp -a \
-                  "$source_steam/config/loginusers.vdf" \
-                  "$test_steam/config/loginusers.vdf"
-                cp -a \
-                  "$source_steam/config/config.vdf" \
-                  "$test_steam/config/config.vdf"
-                if [[ -f "$source_home/.steam/registry.vdf" ]]; then
-                  cp -a \
-                    "$source_home/.steam/registry.vdf" \
-                    "$test_home/.steam/registry.vdf"
-                fi
-                printf '%s\n' \
-                  'Imported the normal Steam login into isolated test state.'
-              fi
-
-              export HOME="$test_home"
-              export XDG_DATA_HOME="$test_home/.local/share"
-              export XDG_CONFIG_HOME="$test_home/.config"
-              export XDG_CACHE_HOME="$test_home/.cache"
-              export XDG_STATE_HOME="$test_home/.local/state"
-              printf 'Using isolated ARM64 Steam test state: %s\n' "$test_home"
-              exec ${pkgs.steam-asahi-arm64}/bin/steam-asahi "$@"
+              exec ${arm64TestPackage}/bin/steam-asahi "$@"
             '';
           };
         in
@@ -427,8 +371,8 @@
             echo "Backend commands:"
             echo "  steam-asahi              # x86/FEX default"
             echo "  steam-asahi-x86          # explicit x86/FEX backend"
-            echo "  steam-asahi-arm64        # ARM64 beta, normal Steam state"
-            echo "  steam-asahi-arm64-test   # ARM64 beta, isolated test state (--import-login supported)"
+            echo "  steam-asahi-arm64        # ARM64 beta, isolated state by default"
+            echo "  steam-asahi-arm64-test   # ARM64 beta, separate development test state"
             echo ""
             echo "ARM64 diagnostics:"
             echo "  steam-asahi-arm64 --guest uname -m"

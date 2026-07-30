@@ -16,6 +16,7 @@ let
     mkMerge
     mkOption
     optional
+    optionalAttrs
     optionals
     types
     unique
@@ -116,23 +117,47 @@ in
       '';
       apply =
         package:
-        package.override (previous: {
-          inherit (cfg) memoryMiB vramMiB;
-          # Match nixpkgs' Steam module by preserving customization already
-          # applied to the selected package. Module values win per variable,
-          # and null continues to mean removal.
-          extraEnv = filterAttrs (_: value: value != null) ((previous.extraEnv or { }) // cfg.extraEnv);
-          publishPorts = publishPorts;
-        });
+        package.override (
+          previous:
+          {
+            inherit (cfg) memoryMiB vramMiB;
+            # Match nixpkgs' Steam module by preserving customization already
+            # applied to the selected package. Module values win per variable,
+            # and null continues to mean removal.
+            extraEnv = filterAttrs (_: value: value != null) ((previous.extraEnv or { }) // cfg.extraEnv);
+            publishPorts = publishPorts;
+          }
+          // optionalAttrs (cfg.backend == "arm64") {
+            inherit (cfg) customSteamHomeDir;
+          }
+        );
       description = ''
         The Steam Asahi launcher package to use. The package is overridden with
         {option}`programs.steam-asahi.memoryMiB`,
         {option}`programs.steam-asahi.vramMiB`, and
         {option}`programs.steam-asahi.extraEnv`, plus the guest ports selected
-        by the firewall options. Existing `extraEnv` customization on the
-        selected package is preserved, while module values take precedence. A
-        custom package must accept `memoryMiB`, `vramMiB`, `extraEnv`, and
-        `publishPorts` arguments.
+        by the firewall options. The ARM64 backend also receives
+        {option}`programs.steam-asahi.customSteamHomeDir`. Existing `extraEnv`
+        customization on the selected package is preserved, while module
+        values take precedence. A custom package must accept the corresponding
+        arguments.
+      '';
+    };
+
+    customSteamHomeDir = mkOption {
+      type = types.nullOr types.nonEmptyStr;
+      default = null;
+      example = "steam-asahi-arm64-test-home";
+      description = ''
+        Custom HOME for the native ARM64 Steam beta. When this is `null`, the
+        launcher uses `$XDG_DATA_HOME/steam-asahi-arm64-home` (normally
+        `~/.local/share/steam-asahi-arm64-home`). A relative value is resolved
+        below the user's original XDG data directory; an absolute value is used
+        as-is. Steam's client files, games, compatibility tools, Proton
+        prefixes, shader caches, and per-user configuration remain below this
+        HOME.
+
+        This option is passed to custom packages only for the `arm64` backend.
       '';
     };
 

@@ -135,6 +135,8 @@ test_sourceability() {
     CLIENT_UPDATE_CHANNEL=publicbeta
     COMPATIBILITY_TOOL_DIRECTORY=compat
     COMPATIBILITY_TOOL_VDF=/tmp/vdf
+    CUSTOM_STEAM_HOME_DIR=
+    DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home
     DISPLAY_NAME=Proton
     ENV_BIN=/usr/bin/env
     GUEST_LAUNCHER=/bin/true
@@ -152,9 +154,14 @@ test_sourceability() {
     VRAM_ARGS=()
     YAD=/bin/true
     HOME="${TEST_ROOT}/source home"
+    local source_home="${HOME}"
     # shellcheck source=../scripts/launcher.sh
     source "${PACKAGE_ROOT}/scripts/launcher.sh"
+    assert_equal "${source_home}" "${HOME}" 'sourcing launcher changed HOME'
+    declare -F import_login_state >/dev/null
+    declare -F initialize_steam_home >/dev/null
     declare -F install_managed_file >/dev/null
+    declare -F sync_pulse_cookie >/dev/null
     declare -F write_managed_value >/dev/null
   )
 
@@ -353,7 +360,8 @@ test_launcher() {
   local launcher_root="${TEST_ROOT}/launcher"
   local home="${launcher_root}/home with spaces"
   local output="${launcher_root}/muvm-arguments"
-  local steam_directory="${home}/data/Steam"
+  local steam_home="${home}/data/steam-asahi-arm64-home"
+  local steam_directory="${steam_home}/.local/share/Steam"
   local compatibility_directory=\
 "${steam_directory}/compatibilitytools.d/test-proton"
 
@@ -392,6 +400,8 @@ EOF
     CLIENT_UPDATE_CHANNEL=publicbeta \
     COMPATIBILITY_TOOL_DIRECTORY=test-proton \
     COMPATIBILITY_TOOL_VDF="${launcher_root}/compatibilitytool.vdf" \
+    CUSTOM_STEAM_HOME_DIR= \
+    DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home \
     DISPLAY_NAME='Test Proton' \
     ENV_BIN="$(command -v env)" \
     GUEST_LAUNCHER=/guest-launcher \
@@ -415,7 +425,8 @@ EOF
     fail 'Steam bootstrap was not installed'
   assert_equal publicbeta "$(<"${steam_directory}/package/beta")" \
     'Steam update channel'
-  assert_equal "${steam_directory}" "$(readlink -- "${home}/.steam/steam")" \
+  assert_equal \
+    "${steam_directory}" "$(readlink -- "${steam_home}/.steam/steam")" \
     'Steam compatibility symlink'
   [[ -x ${compatibility_directory}/run-proton ]] ||
     fail 'managed Proton runner was not installed'

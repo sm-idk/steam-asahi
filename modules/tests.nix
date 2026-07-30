@@ -77,6 +77,17 @@ let
     };
   };
 
+  customHomeArm64 = mkAarch64System {
+    programs.steam-asahi = {
+      backend = "arm64";
+      customSteamHomeDir = "custom-arm64-home";
+    };
+    services.pipewire = {
+      enable = true;
+      pulse.enable = true;
+    };
+  };
+
   steamArm64Client = defaults.pkgs.steam-arm64-client;
   steamArm64ClientPurlSpec = "valve/${steamArm64Client.pname}@${steamArm64Client.version}";
   steamArm64ClientPurl = "pkg:generic/${steamArm64ClientPurlSpec}";
@@ -222,6 +233,11 @@ assert
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
     STEAM_RUNTIME = "1";
   };
+assert defaults.config.programs.steam-asahi.customSteamHomeDir == null;
+assert arm64.config.programs.steam-asahi.customSteamHomeDir == null;
+assert arm64.config.programs.steam-asahi.package.customSteamHomeDir == null;
+assert
+  customHomeArm64.config.programs.steam-asahi.package.customSteamHomeDir == "custom-arm64-home";
 assert
   customized.config.programs.steam-asahi.extraEnv == {
     FEX_MULTIBLOCK = null;
@@ -291,6 +307,7 @@ assert
   defaults.pkgs.steam-asahi-arm64.meta.license == defaults.pkgs.lib.licenses.unfreeRedistributable;
 assert defaults.pkgs.steam-asahi-arm64.meta.mainProgram == "steam-asahi";
 assert defaults.pkgs.steam-asahi-arm64.backend == "arm64";
+assert defaults.pkgs.steam-asahi-arm64.customSteamHomeDir == null;
 assert steamArm64Client.meta.identifiers.purlParts.type == "generic";
 assert steamArm64Client.meta.identifiers.purlParts.spec == steamArm64ClientPurlSpec;
 assert steamArm64Client.meta.identifiers.v1.purl == steamArm64ClientPurl;

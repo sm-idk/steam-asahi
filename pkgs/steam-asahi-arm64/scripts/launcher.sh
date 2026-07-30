@@ -11,6 +11,12 @@ set -o pipefail
 : "${CLIENT_UPDATE_CHANNEL:?internal configuration was not injected}"
 : "${COMPATIBILITY_TOOL_DIRECTORY:?internal configuration was not injected}"
 : "${COMPATIBILITY_TOOL_VDF:?internal configuration was not injected}"
+if [[ ! -v CUSTOM_STEAM_HOME_DIR ]]; then
+  printf '%s\n' \
+    'ERROR: internal custom Steam HOME configuration was not injected' >&2
+  exit 1
+fi
+: "${DEFAULT_STEAM_HOME_DIR:?internal configuration was not injected}"
 : "${DISPLAY_NAME:?internal configuration was not injected}"
 : "${ENV_BIN:?internal configuration was not injected}"
 : "${GUEST_LAUNCHER:?internal configuration was not injected}"
@@ -29,6 +35,8 @@ readonly CLIENT_BOOTSTRAP
 readonly CLIENT_UPDATE_CHANNEL
 readonly COMPATIBILITY_TOOL_DIRECTORY
 readonly COMPATIBILITY_TOOL_VDF
+readonly CUSTOM_STEAM_HOME_DIR
+readonly DEFAULT_STEAM_HOME_DIR
 readonly DISPLAY_NAME
 readonly ENV_BIN
 readonly GUEST_LAUNCHER
@@ -65,20 +73,50 @@ readonly -a CLEAN_ENVIRONMENT_ARGS=(
   LANG=C.UTF-8
   LC_ALL=C.UTF-8
 )
-
-readonly STEAM_DIRECTORY="${XDG_DATA_HOME:-${HOME}/.local/share}/Steam"
-readonly CLIENT_DIRECTORY="${STEAM_DIRECTORY}/steamrtarm64"
-readonly COMPATIBILITY_DIRECTORY=\
-"${STEAM_DIRECTORY}/compatibilitytools.d/${COMPATIBILITY_TOOL_DIRECTORY}"
 readonly MAX_PROTON_LOG_SIZE_BYTES=1048576
-readonly PROTON_DIRECTORY_PATH=\
-"${STEAM_DIRECTORY}/steamapps/common/${PROTON_DIRECTORY}"
-readonly RUNTIME_DIRECTORY_PATH=\
-"${STEAM_DIRECTORY}/steamapps/common/${RUNTIME_DIRECTORY}"
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+# Resolves the isolated state only when the executable enters main. Keeping
+# this out of global scope avoids rewriting a sourcing shell's HOME/XDG paths.
+initialize_steam_home() {
+  local steam_home_directory
+
+  SOURCE_HOME="${HOME}"
+  SOURCE_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  SOURCE_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  steam_home_directory="${CUSTOM_STEAM_HOME_DIR:-${DEFAULT_STEAM_HOME_DIR}}"
+  if [[ "${steam_home_directory}" == /* ]]; then
+    HOME="${steam_home_directory}"
+  else
+    HOME="${SOURCE_DATA_HOME}/${steam_home_directory}"
+  fi
+  export HOME
+  export XDG_CACHE_HOME="${HOME}/.cache"
+  export XDG_CONFIG_HOME="${HOME}/.config"
+  export XDG_DATA_HOME="${HOME}/.local/share"
+  export XDG_STATE_HOME="${HOME}/.local/state"
+
+  STEAM_DIRECTORY="${XDG_DATA_HOME}/Steam"
+  CLIENT_DIRECTORY="${STEAM_DIRECTORY}/steamrtarm64"
+  COMPATIBILITY_DIRECTORY="${STEAM_DIRECTORY}/compatibilitytools.d/\
+${COMPATIBILITY_TOOL_DIRECTORY}"
+  PROTON_DIRECTORY_PATH="${STEAM_DIRECTORY}/steamapps/common/\
+${PROTON_DIRECTORY}"
+  RUNTIME_DIRECTORY_PATH="${STEAM_DIRECTORY}/steamapps/common/\
+${RUNTIME_DIRECTORY}"
+  readonly \
+    CLIENT_DIRECTORY \
+    COMPATIBILITY_DIRECTORY \
+    PROTON_DIRECTORY_PATH \
+    RUNTIME_DIRECTORY_PATH \
+    SOURCE_CONFIG_HOME \
+    SOURCE_DATA_HOME \
+    SOURCE_HOME \
+    STEAM_DIRECTORY
 }
 
 warn_missing_audio_socket() {
@@ -148,6 +186,60 @@ write_managed_value() {
     rm -f -- "${temporary_path}"
     return 1
   fi
+}
+
+# Keeps PulseAudio cookie authentication working without exposing any other
+# host configuration to the isolated client.
+sync_pulse_cookie() {
+  local source_cookie="${SOURCE_CONFIG_HOME}/pulse/cookie"
+  local target_cookie="${XDG_CONFIG_HOME:-${HOME}/.config}/pulse/cookie"
+
+  if [[ ! -f "${source_cookie}" \
+    && -f "${SOURCE_HOME}/.pulse-cookie" ]]; then
+    source_cookie="${SOURCE_HOME}/.pulse-cookie"
+  fi
+  [[ -f "${source_cookie}" && "${source_cookie}" != "${target_cookie}" ]] \
+    || return 0
+
+  # Reinstall even when the content matches so a permissive target mode is
+  # repaired to the authentication cookie's required private mode.
+  mkdir -p -- "$(dirname -- "${target_cookie}")"
+  install_managed_file "${source_cookie}" "${target_cookie}" 0600
+}
+
+# The ARM beta's login UI is unreliable. Copy the minimum state used by the
+# proven development importer only after an explicit user request.
+import_login_state() {
+  local source_registry="${SOURCE_HOME}/.steam/registry.vdf"
+  local source_steam="${SOURCE_DATA_HOME}/Steam"
+
+  [[ "${source_steam}" != "${STEAM_DIRECTORY}" ]] || die \
+    'the source and isolated Steam directories are identical'
+  if [[ ! -f "${source_steam}/local.vdf" \
+    || ! -f "${source_steam}/config/loginusers.vdf" \
+    || ! -f "${source_steam}/config/config.vdf" ]]; then
+    die "incomplete x86 Steam login under ${source_steam}"
+  fi
+
+  mkdir -p -- "${STEAM_DIRECTORY}/config" "${HOME}/.steam"
+  install_managed_file \
+    "${source_steam}/local.vdf" \
+    "${STEAM_DIRECTORY}/local.vdf" \
+    0600
+  install_managed_file \
+    "${source_steam}/config/loginusers.vdf" \
+    "${STEAM_DIRECTORY}/config/loginusers.vdf" \
+    0600
+  install_managed_file \
+    "${source_steam}/config/config.vdf" \
+    "${STEAM_DIRECTORY}/config/config.vdf" \
+    0600
+  if [[ -f "${source_registry}" ]]; then
+    install_managed_file \
+      "${source_registry}" "${HOME}/.steam/registry.vdf" 0600
+  fi
+  printf 'Imported the x86 Steam login into isolated state at %s.\n' \
+    "${HOME}"
 }
 
 # Repairs a missing or partial client bootstrap while retaining mutable files
@@ -261,17 +353,31 @@ show_splash() {
 }
 
 main() {
-  (( EUID != 0 )) || die 'Do not run steam-asahi as root'
+  local import_login=false
 
+  (( EUID != 0 )) || die 'Do not run steam-asahi as root'
+  initialize_steam_home
+
+  if [[ "${1:-}" == '--import-login' ]]; then
+    import_login=true
+    shift
+  fi
   if [[ "${1:-}" == '--guest' ]]; then
+    [[ "${import_login}" == false ]] || die \
+      '--import-login cannot be combined with --guest'
     shift
     (( $# > 0 )) || die 'usage: steam-asahi --guest command [arguments...]'
     run_guest "$@"
   fi
 
+  printf 'Using isolated ARM64 Steam home: %s\n' "${HOME}"
   warn_missing_audio_socket
+  sync_pulse_cookie
   install_client_bootstrap
   configure_steam_state
+  if [[ "${import_login}" == true ]]; then
+    import_login_state
+  fi
   install_proton_integration
   show_splash
 

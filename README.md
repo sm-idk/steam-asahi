@@ -24,7 +24,8 @@ and connects the guest to the accelerated Asahi GPU stack.
   native ARM64 client.
 - **NixOS integration** for graphics, controllers, KVM access, memory limits,
   backend environment variables, and optional Steam service ports.
-- **Shared Steam data** when switching backends, without duplicating games.
+- **Isolated ARM64 state by default** so experimental ARM tools and Proton
+  prefixes cannot corrupt an x86 Steam installation.
 
 > [!WARNING]
 > **This is experimental and was primarily written by an LLM. Review the code
@@ -83,6 +84,7 @@ upstream access policy for native PipeWire portal clients.
 | Module option                            | Purpose                                                              |
 | ---------------------------------------- | -------------------------------------------------------------------- |
 | `backend`                                | `"x86-fex"` (default) or `"arm64"`                                   |
+| `customSteamHomeDir`                     | Custom ARM64 HOME; defaults below the user's XDG data directory       |
 | `memoryMiB`                              | Optional guest memory ceiling                                        |
 | `vramMiB`                                | Optional video-memory heap size reported inside the guest            |
 | `extraEnv`                               | Variables merged with the backend defaults; use `null` to remove one |
@@ -104,22 +106,33 @@ The three firewall options configure both the NixOS host firewall and
 
 Both run inside `muvm` because both clients need a 4K-page environment.
 
-The ARM64 login screen may get stuck at **Waiting for network**. Log in once
-with x86/FEX, then copy that login into isolated test state:
+The ARM64 backend defaults to a completely separate HOME at
+`$XDG_DATA_HOME/steam-asahi-arm64-home` (normally
+`~/.local/share/steam-asahi-arm64-home`). This separation includes Steam client
+files, games, app manifests, Proton prefixes, shader caches, and configuration.
+Do not add the x86 Steam library as an ARM64 library: x86 and ARM compatibility
+tools must not share mutable `compatdata`.
+
+The ARM64 login screen may get stuck at **Waiting for network**. If that
+happens, log in through x86/FEX and fully exit that client. Then select the
+ARM64 module backend, rebuild, and explicitly copy the login into its isolated
+state:
 
 ```console
-$ nix develop
-$ steam-asahi-arm64-test --import-login
+$ steam-asahi --import-login        # installed ARM64 module backend
+$ steam-asahi-arm64 --import-login  # development shell
 ```
 
-For Windows games on ARM64, install **Proton 11.0 (ARM64)** (AppID `4628740`)
-and **Steam Linux Runtime 4.0 - Arm64** (AppID `4185400`). The launcher then
-registers the compatibility tool automatically.
+The import copies login/configuration files once on request; it never shares or
+links the two Steam trees. The launcher separately keeps the host PulseAudio
+cookie synchronized for authenticated audio servers.
 
-> [!NOTE]
-> Both backends use `~/.local/share/Steam`. Back it up before testing the ARM64
-> beta; the isolated test command stores its copy under
-> `~/.local/share/steam-asahi-arm64-test-home`.
+For Windows games on ARM64, install **Proton 11.0 (ARM64)** (AppID
+[`4628740`](https://steamdb.info/app/4628740/)) and **Steam Linux Runtime 4.0 -
+Arm64** (AppID [`4185400`](https://steamdb.info/app/4185400/)) inside the isolated
+client. The launcher then registers the compatibility tool automatically.
+Set `customSteamHomeDir` to use a different directory for the isolated ARM64
+HOME.
 
 ## First launch
 
@@ -156,9 +169,9 @@ $ systemctl --user status pipewire-pulse.socket pipewire-pulse.service
 On NixOS, enable `services.pipewire.enable` together with
 `services.pipewire.pulse.enable`, or enable `services.pulseaudio.enable`.
 Restart Steam Asahi after the socket appears because `muvm` attaches the host
-socket when it
-creates the microVM. The isolated ARM64 test launcher copies the current user's
-Pulse cookie into its test home for servers that require cookie authentication.
+socket when it creates the microVM. The isolated ARM64 launcher copies the
+current user's Pulse cookie into its private HOME for servers that require
+cookie authentication.
 
 ## Development
 

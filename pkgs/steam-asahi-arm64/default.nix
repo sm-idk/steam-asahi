@@ -93,6 +93,8 @@
   memoryMiB ? null,
   vramMiB ? null,
   publishPorts ? [ ],
+  # null uses the default below the caller's original XDG data home.
+  customSteamHomeDir ? null,
   extraEnv ? {
     STEAM_RUNTIME = "1";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
@@ -112,6 +114,9 @@ assert lib.assertMsg (
 assert lib.assertMsg (
   builtins.isList publishPorts && lib.all builtins.isString publishPorts
 ) "steam-asahi-arm64: publishPorts must be a list of muvm port specifications";
+assert lib.assertMsg (
+  customSteamHomeDir == null || (builtins.isString customSteamHomeDir && customSteamHomeDir != "")
+) "steam-asahi-arm64: customSteamHomeDir must be null or a non-empty string";
 
 let
   # Steam's client runtime is not sufficient on its own: Pressure Vessel also
@@ -340,6 +345,8 @@ let
       CLIENT_UPDATE_CHANNEL = steam-arm64-client.updateChannel;
       COMPATIBILITY_TOOL_DIRECTORY = armProton.compatibilityToolDirectory;
       COMPATIBILITY_TOOL_VDF = "${compatibilityToolVdf}";
+      CUSTOM_STEAM_HOME_DIR = if customSteamHomeDir == null then "" else customSteamHomeDir;
+      DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;
       ENV_BIN = lib.getExe' coreutils "env";
       GUEST_LAUNCHER = lib.getExe guestLauncher;
@@ -402,7 +409,7 @@ symlinkJoin {
   '';
   inherit (launcher) meta;
   passthru = {
-    inherit steam-arm64-client;
+    inherit customSteamHomeDir steam-arm64-client;
     backend = "arm64";
     proton = armProton;
     tests = {
