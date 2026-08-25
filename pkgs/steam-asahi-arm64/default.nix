@@ -49,7 +49,7 @@
   gtk3,
   ibus,
   krb5,
-  libappindicator-gtk2,
+  libappindicator,
   libcap,
   libGL,
   libdrm,
@@ -144,7 +144,7 @@ let
     gtk3
     ibus
     krb5
-    libappindicator-gtk2
+    libappindicator
     libcap
     libGL
     libdrm
@@ -232,6 +232,7 @@ let
       BASH_BIN = lib.getExe bash;
       COREUTILS_BIN = "${lib.getBin coreutils}/bin";
       EXTRA_COMMAND_DIRS = [
+        "${lib.getBin dbus}/bin"
         "${lib.getBin file}/bin"
         "${lib.getBin usbutils}/bin"
         "${lib.getBin which}/bin"

@@ -177,6 +177,8 @@ test_guest_launcher() {
   local expected_library_path
   local guest_home="${TEST_ROOT}/guest-home"
   local guest_root="${TEST_ROOT}/guest"
+  local runtime_tools="${guest_root}/data home/Steam/steamapps/common/\
+SteamLinuxRuntime_4-arm64/pressure-vessel/bin"
   local -a guest_arguments
   local output="${guest_root}/output"
   local status_file="${guest_root}/attempts"
@@ -184,7 +186,10 @@ test_guest_launcher() {
   mkdir -p -- \
     "${guest_home}/.steam" \
     "${guest_root}/data home" \
-    "${output}"
+    "${output}" \
+    "${runtime_tools}"
+  touch -- "${runtime_tools}/steam-runtime-launcher-service"
+  chmod +x -- "${runtime_tools}/steam-runtime-launcher-service"
   ln -s -- /x86/32 "${guest_home}/.steam/bin32"
   ln -s -- /x86/64 "${guest_home}/.steam/bin64"
   printf '#!%s\n' "${TEST_BASH}" >"${guest_root}/restart-command"
@@ -236,6 +241,9 @@ ${guest_root}/data home/Steam/steamrtarm64/libs:\
     'guest library path'
   [[ $(<"${output}/path") != *: ]] \
     || fail 'guest PATH has an empty final entry'
+  [[ $(<"${output}/path") == \
+    "/usr/local/bin:/usr/bin:/bin:${runtime_tools}:"* ]] \
+    || fail 'guest PATH does not include ARM64 Steam Runtime tools'
   assert_equal unset "$(<"${output}/gio-extra-modules")" \
     'guest GIO_EXTRA_MODULES isolation'
   expected_data_directories="/run/opengl-driver/share:\

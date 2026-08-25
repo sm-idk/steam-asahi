@@ -279,23 +279,52 @@
       };
     in
     {
-      overlays.default = final: prev: {
-        steam-arm64-client = final.callPackage ./pkgs/steam-arm64-client { };
-        steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
-        steam-asahi = final.callPackage ./pkgs/steam-asahi { };
+      overlays.default =
+        final: prev:
+        let
+          fexOverrideVersion = "2608";
+          muvmFexFixVersion = "0.6.1";
+          nixpkgsFexIsCurrent = prev.lib.versionAtLeast prev.fex.version fexOverrideVersion;
+          nixpkgsMuvmHasFexFix = prev.lib.versionAtLeast prev.muvm.version muvmFexFixVersion;
+          overriddenFex = prev.fex.overrideAttrs (old: {
+            version = fexOverrideVersion;
+            src = old.src.overrideAttrs (_: {
+              rev = "refs/tags/FEX-${fexOverrideVersion}";
+              hash = "sha256-2NdkQpzqDkM/fEW8QYS05KU3JPJeLw4gliryqdOJ3vE=";
+            });
+            postPatch = (old.postPatch or "") + ''
+              # FEX measures this timeout with CNTVCT_EL0 but tests it against a
+              # separate host clock. Allow a small amount of clock drift while
+              # still checking that the 250 ms timeout was observed.
+              substituteInPlace FEXCore/unittests/APITests/FutexSpinTest.cpp \
+                --replace-fail \
+                  'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount));' \
+                  'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount - std::chrono::milliseconds(1)));'
+            '';
+          });
+          overriddenMuvm = prev.muvm.overrideAttrs (old: {
+            postPatch = (old.postPatch or "") + ''
+              # muvm 0.6.0 predates FEXInterpreter being renamed to FEX.
+              # This is upstream commit 25ece4c2d4a62f2ade3dacdd2dce0bb5240080fc.
+              substituteInPlace crates/muvm/src/guest/fex.rs \
+                --replace-fail 'FEX_INTERPRETER' 'FEX' \
+                --replace-fail 'fex_interpreter_path' 'fex_path' \
+                --replace-fail 'FEXInterpreter' 'FEX'
+            '';
+          });
+        in
+        {
+          steam-arm64-client = final.callPackage ./pkgs/steam-arm64-client { };
+          steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
+          steam-asahi = final.callPackage ./pkgs/steam-asahi { };
 
-        fex = prev.fex.overrideAttrs (old: {
-          postPatch = (old.postPatch or "") + ''
-            # FEX measures this timeout with CNTVCT_EL0 but tests it against a
-            # separate host clock. Allow a small amount of clock drift while
-            # still checking that the 250 ms timeout was observed.
-            substituteInPlace FEXCore/unittests/APITests/FutexSpinTest.cpp \
-              --replace-fail \
-                'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount));' \
-                'REQUIRE(std::chrono::duration_cast<std::chrono::nanoseconds>(diff) >= std::chrono::duration_cast<std::chrono::nanoseconds>(SleepAmount - std::chrono::milliseconds(1)));'
-          '';
-        });
-      };
+          fex = prev.lib.warnIf nixpkgsFexIsCurrent ''
+            FEX >= ${fexOverrideVersion} is now in nixpkgs; remove the FEX override.
+          '' (if nixpkgsFexIsCurrent then prev.fex else overriddenFex);
+          muvm = prev.lib.warnIf nixpkgsMuvmHasFexFix ''
+            muvm >= ${muvmFexFixVersion} is now in nixpkgs; remove the muvm FEX-name override.
+          '' (if nixpkgsMuvmHasFexFix then prev.muvm else overriddenMuvm);
+        };
 
       packages.${system} = {
         inherit (pkgs)

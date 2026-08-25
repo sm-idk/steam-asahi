@@ -29,7 +29,10 @@ disable_x86_overlay_preloads() {
 }
 
 main() {
+  local candidate
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  local runtime_tools_directory=
+  local steamapps_directory="${data_home}/Steam/steamapps/common"
   local status
   local steam_native_directory
   local usage
@@ -40,7 +43,18 @@ main() {
 
   (( $# > 0 )) || die "${usage}"
 
-  export PATH="/usr/local/bin:/usr/bin:/bin${PATH:+:${PATH}}"
+  # The ARM client invokes this bundled service by its unqualified name.
+  for candidate in \
+    "${steamapps_directory}/SteamLinuxRuntime_4-arm64/pressure-vessel/bin" \
+    "${steamapps_directory}/SteamLinuxRuntime_soldier/\
+pressure-vessel-arm64/bin"; do
+    if [[ -x "${candidate}/steam-runtime-launcher-service" ]]; then
+      runtime_tools_directory=${candidate}
+      break
+    fi
+  done
+  export PATH="/usr/local/bin:/usr/bin:/bin\
+${runtime_tools_directory:+:${runtime_tools_directory}}${PATH:+:${PATH}}"
   steam_native_directory="${data_home}/Steam/steamrtarm64"
 
   # Prefer Valve's coherent client runtime over same-SONAME Nix libraries, then
