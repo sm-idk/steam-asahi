@@ -6,21 +6,24 @@
 }:
 
 let
-  inherit (lib)
-    concatLists
+  inherit (lib.attrsets)
     filterAttrs
     mapAttrs
-    mkDefault
-    mkEnableOption
-    mkIf
-    mkMerge
-    mkOption
-    optional
     optionalAttrs
+    ;
+  inherit (lib.lists)
+    filter
+    map
+    optional
     optionals
-    types
     unique
     ;
+  inherit (lib.modules)
+    mkDefault
+    mkIf
+    mkMerge
+    ;
+  inherit (lib.options) mkEnableOption mkOption;
 
   cfg = config.programs.steam-asahi;
 
@@ -29,47 +32,75 @@ let
     arm64 = pkgs.steam-asahi-arm64;
   };
 
-  backendEnvironments = {
-    x86-fex = {
-      # Conservative x86/FEX baseline. Per-game flags belong in each
-      # game's launch options because they can regress other titles.
-      FEX_MULTIBLOCK = "0";
-      GTK_IM_MODULE = "xim";
-      STEAMOS = "1";
-      STEAM_RUNTIME = "1";
-      PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    };
-    arm64 = {
-      GTK_IM_MODULE = "xim";
-      STEAM_RUNTIME = "1";
-      PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    };
-  };
+  backendEnvironments = import ../pkgs/environments.nix;
 
   hasPulseAudioServer =
     config.services.pulseaudio.enable
     || (config.services.pipewire.enable && config.services.pipewire.pulse.enable);
 
+  mkPort = enabled: protocol: port: {
+    inherit enabled port protocol;
+  };
+
+  mkPortRange = enabled: protocol: from: to: {
+    inherit
+      enabled
+      from
+      protocol
+      to
+      ;
+  };
+
+  # Keep one canonical description of each Steam port. The NixOS firewall and
+  # muvm/passt publication arguments below are derived from this same list.
+  steamPorts = [
+    # Peer discovery for Remote Play and local network transfers.
+    (mkPort (cfg.remotePlay.openFirewall || cfg.localNetworkGameTransfers.openFirewall) "udp" 27036)
+    (mkPort cfg.remotePlay.openFirewall "tcp" 27036)
+    (mkPort cfg.remotePlay.openFirewall "tcp" 27037)
+    (mkPort cfg.remotePlay.openFirewall "udp" 10400)
+    (mkPort cfg.remotePlay.openFirewall "udp" 10401)
+    (mkPortRange cfg.remotePlay.openFirewall "udp" 27031 27035)
+    # Source Dedicated Server Rcon and gameplay traffic.
+    (mkPort cfg.dedicatedServer.openFirewall "tcp" 27015)
+    (mkPort cfg.dedicatedServer.openFirewall "udp" 27015)
+    # Local network game data transfers.
+    (mkPort cfg.localNetworkGameTransfers.openFirewall "tcp" 27040)
+  ];
+
+  enabledSteamPorts = filter (specification: specification.enabled) steamPorts;
+
+  singlePortsFor =
+    protocol:
+    map (specification: specification.port) (
+      filter (specification: specification.protocol == protocol && specification ? port) enabledSteamPorts
+    );
+
+  portRangesFor =
+    protocol:
+    map
+      (specification: {
+        inherit (specification) from to;
+      })
+      (
+        filter (specification: specification.protocol == protocol && specification ? from) enabledSteamPorts
+      );
+
   # muvm uses passt for guest networking, so opening the host firewall alone is
-  # insufficient. Publish the same ports from the guest to the host whenever a
-  # Steam networking feature is enabled.
-  publishPorts = unique (concatLists [
-    (optionals (cfg.remotePlay.openFirewall || cfg.localNetworkGameTransfers.openFirewall) [
-      "27036/udp"
-    ])
-    (optionals cfg.remotePlay.openFirewall [
-      "27036/tcp"
-      "27037/tcp"
-      "10400/udp"
-      "10401/udp"
-      "27031-27035/udp"
-    ])
-    (optionals cfg.dedicatedServer.openFirewall [
-      "27015/tcp"
-      "27015/udp"
-    ])
-    (optionals cfg.localNetworkGameTransfers.openFirewall [ "27040/tcp" ])
-  ]);
+  # insufficient. Publish the selected ports from the guest to the host too.
+  publishPorts = unique (
+    map (
+      specification:
+      let
+        endpoint =
+          if specification ? port then
+            toString specification.port
+          else
+            "${toString specification.from}-${toString specification.to}";
+      in
+      "${endpoint}/${specification.protocol}"
+    ) enabledSteamPorts
+  );
 
   # muvm marks proxied PipeWire portal clients with a private access property.
   # Its matching WirePlumber policy lives in the source tree but is not
@@ -93,7 +124,7 @@ in
     enable = mkEnableOption "Steam on Apple Silicon in a 4K-page microVM";
 
     backend = mkOption {
-      type = types.enum [
+      type = lib.types.enum [
         "x86-fex"
         "arm64"
       ];
@@ -107,9 +138,9 @@ in
     };
 
     package = mkOption {
-      type = types.package;
+      type = lib.types.package;
       default = backendPackages.${cfg.backend};
-      defaultText = lib.literalExpression ''
+      defaultText = lib.options.literalExpression ''
         if config.programs.steam-asahi.backend == "arm64" then
           pkgs.steam-asahi-arm64
         else
@@ -125,7 +156,7 @@ in
             # applied to the selected package. Module values win per variable,
             # and null continues to mean removal.
             extraEnv = filterAttrs (_: value: value != null) ((previous.extraEnv or { }) // cfg.extraEnv);
-            publishPorts = publishPorts;
+            inherit publishPorts;
           }
           // optionalAttrs (cfg.backend == "arm64") {
             inherit (cfg) customSteamHomeDir;
@@ -145,7 +176,7 @@ in
     };
 
     customSteamHomeDir = mkOption {
-      type = types.nullOr types.nonEmptyStr;
+      type = lib.types.nullOr lib.types.nonEmptyStr;
       default = null;
       example = "steam-asahi-arm64-test-home";
       description = ''
@@ -162,7 +193,7 @@ in
     };
 
     memoryMiB = mkOption {
-      type = types.nullOr types.ints.positive;
+      type = lib.types.nullOr lib.types.ints.positive;
       default = null;
       example = 6144;
       description = ''
@@ -175,7 +206,7 @@ in
     };
 
     vramMiB = mkOption {
-      type = types.nullOr types.ints.positive;
+      type = lib.types.nullOr lib.types.ints.positive;
       default = null;
       example = 4096;
       description = ''
@@ -187,9 +218,9 @@ in
     };
 
     extraEnv = mkOption {
-      type = types.attrsOf (types.nullOr types.str);
+      type = lib.types.attrsOf (lib.types.nullOr lib.types.str);
       default = { };
-      defaultText = lib.literalMD "defaults selected by {option}`programs.steam-asahi.backend`";
+      defaultText = lib.options.literalMD "defaults selected by {option}`programs.steam-asahi.backend`";
       example = {
         MANGOHUD = "1";
         FEX_MULTIBLOCK = null;
@@ -205,7 +236,7 @@ in
     };
 
     remotePlay.openFirewall = mkOption {
-      type = types.bool;
+      type = lib.types.bool;
       default = false;
       description = ''
         Open the host firewall and publish the microVM ports needed for Steam
@@ -214,7 +245,7 @@ in
     };
 
     dedicatedServer.openFirewall = mkOption {
-      type = types.bool;
+      type = lib.types.bool;
       default = false;
       description = ''
         Open the host firewall and publish the microVM ports needed for Source
@@ -223,7 +254,7 @@ in
     };
 
     localNetworkGameTransfers.openFirewall = mkOption {
-      type = types.bool;
+      type = lib.types.bool;
       default = false;
       description = ''
         Open the host firewall and publish the microVM ports needed for Steam
@@ -289,42 +320,17 @@ in
       hardware.steam-hardware.enable = true;
 
       services.pipewire.wireplumber.configPackages =
-        optionals (config.services.pipewire.wireplumber.enable)
+        optionals config.services.pipewire.wireplumber.enable
           [ muvmWirePlumberConfig ];
 
-      # Keep these aligned with nixpkgs' regular Steam module. The launcher
-      # additionally forwards each enabled port through muvm/passt.
-      networking.firewall = mkMerge [
-        (mkIf (cfg.remotePlay.openFirewall || cfg.localNetworkGameTransfers.openFirewall) {
-          allowedUDPPorts = [ 27036 ]; # Peer discovery
-        })
-
-        (mkIf cfg.remotePlay.openFirewall {
-          allowedTCPPorts = [
-            27036
-            27037
-          ];
-          allowedUDPPorts = [
-            10400
-            10401
-          ];
-          allowedUDPPortRanges = [
-            {
-              from = 27031;
-              to = 27035;
-            }
-          ];
-        })
-
-        (mkIf cfg.dedicatedServer.openFirewall {
-          allowedTCPPorts = [ 27015 ]; # SRCDS Rcon port
-          allowedUDPPorts = [ 27015 ]; # Gameplay traffic
-        })
-
-        (mkIf cfg.localNetworkGameTransfers.openFirewall {
-          allowedTCPPorts = [ 27040 ]; # Data transfers
-        })
-      ];
+      # These match nixpkgs' regular Steam module. The launcher additionally
+      # forwards each enabled port through muvm/passt.
+      networking.firewall = {
+        allowedTCPPorts = singlePortsFor "tcp";
+        allowedUDPPorts = singlePortsFor "udp";
+        allowedTCPPortRanges = portRangesFor "tcp";
+        allowedUDPPortRanges = portRangesFor "udp";
+      };
     })
   ];
 }
