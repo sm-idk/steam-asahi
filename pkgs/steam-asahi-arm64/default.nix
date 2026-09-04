@@ -8,6 +8,7 @@
   replaceVars,
   runCommand,
   shellcheck,
+  writeText,
   python3,
   steam-arm64-client,
   steam-unwrapped,
@@ -96,30 +97,29 @@
   publishPorts ? [ ],
   # null uses the default below the caller's original XDG data home.
   customSteamHomeDir ? null,
-  extraEnv ? {
-    STEAM_RUNTIME = "1";
-    PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    GTK_IM_MODULE = "xim";
-  },
+  extraEnv ? (import ../environments.nix).arm64,
 }:
 
-assert lib.assertMsg (
+assert lib.asserts.assertMsg (
   memoryMiB == null || (builtins.isInt memoryMiB && memoryMiB > 0)
 ) "steam-asahi-arm64: memoryMiB must be null or a positive integer";
-assert lib.assertMsg (
+assert lib.asserts.assertMsg (
   vramMiB == null || (builtins.isInt vramMiB && vramMiB > 0)
 ) "steam-asahi-arm64: vramMiB must be null or a positive integer";
-assert lib.assertMsg (
-  builtins.isAttrs extraEnv && lib.all builtins.isString (builtins.attrValues extraEnv)
+assert lib.asserts.assertMsg (
+  builtins.isAttrs extraEnv && lib.lists.all builtins.isString (builtins.attrValues extraEnv)
 ) "steam-asahi-arm64: extraEnv values must be strings";
-assert lib.assertMsg (
-  builtins.isList publishPorts && lib.all builtins.isString publishPorts
+assert lib.asserts.assertMsg (
+  builtins.isList publishPorts && lib.lists.all builtins.isString publishPorts
 ) "steam-asahi-arm64: publishPorts must be a list of muvm port specifications";
-assert lib.assertMsg (
+assert lib.asserts.assertMsg (
   customSteamHomeDir == null || (builtins.isString customSteamHomeDir && customSteamHomeDir != "")
 ) "steam-asahi-arm64: customSteamHomeDir must be null or a non-empty string";
 
 let
+  commonScriptSource = ../scripts/common.sh;
+  commonScript = writeText "steam-asahi-common.sh" (builtins.readFile commonScriptSource);
+
   # Steam's client runtime is not sufficient on its own: Pressure Vessel also
   # imports host libraries and runs host-side probes. Keep this list explicit,
   # like nixpkgs' Steam runtime, so every guest dependency is visible and
@@ -201,17 +201,24 @@ let
 
   nativeRuntime = buildEnv {
     name = "steam-arm64-native-runtime";
-    paths = map lib.getLib nativeLibraries;
+    paths = map lib.attrsets.getLib nativeLibraries;
     pathsToLink = [ "/lib" ];
     # Several packages expose compatibility aliases for the same SONAME. The
     # ordered list above deliberately selects the first provider.
     ignoreCollisions = true;
   };
 
+  # Copy the desktop icon so the native launcher does not retain the complete
+  # x86 Steam client in its runtime closure.
+  steamIcons = runCommand "steam-asahi-icons-${steam-unwrapped.version}" { } ''
+    mkdir -p "$out/share"
+    cp -R -- ${steam-unwrapped}/share/icons "$out/share/"
+  '';
+
   renderShell =
     variables: path:
-    lib.concatStringsSep "\n" [
-      (lib.toShellVars variables)
+    lib.strings.concatStringsSep "\n" [
+      (lib.strings.toShellVars variables)
       (builtins.readFile path)
     ];
 
@@ -219,7 +226,7 @@ let
     inheritPath = false;
     name = "steam-asahi-lspci";
     runtimeInputs = [ pciutils ];
-    text = builtins.readFile ./scripts/lspci.sh;
+    text = renderShell { COMMON_SCRIPT = commonScript; } ./scripts/lspci.sh;
   };
 
   initScript = writeShellApplication {
@@ -230,53 +237,32 @@ let
       util-linux
     ];
     text = renderShell {
-      BASH_BIN = lib.getExe bash;
-      COREUTILS_BIN = "${lib.getBin coreutils}/bin";
+      BASH_BIN = lib.meta.getExe bash;
+      COMMON_SCRIPT = commonScript;
+      COREUTILS_BIN = "${lib.attrsets.getBin coreutils}/bin";
       EXTRA_COMMAND_DIRS = [
-        "${lib.getBin dbus}/bin"
-        "${lib.getBin file}/bin"
-        "${lib.getBin usbutils}/bin"
-        "${lib.getBin which}/bin"
-        "${lib.getBin xz}/bin"
+        "${lib.attrsets.getBin dbus}/bin"
+        "${lib.attrsets.getBin file}/bin"
+        "${lib.attrsets.getBin usbutils}/bin"
+        "${lib.attrsets.getBin which}/bin"
+        "${lib.attrsets.getBin xz}/bin"
       ];
-      ETC_STUB_DIRS = [
-        "ld.so.conf.d"
-        "alternatives"
-        "xdg"
-        "pulse"
-      ];
-      ETC_STUB_FILES = [
-        "ld.so.cache"
-        "ld.so.conf"
-        "timezone"
-      ];
-      ETC_SYMLINKS_TO_MATERIALIZE = [
-        "host.conf"
-        "hosts"
-        "localtime"
-        "os-release"
-        "resolv.conf"
-        "nsswitch.conf"
-        "group"
-        "passwd"
-        "machine-id"
-      ];
-      GETOPT = lib.getExe' util-linux "getopt";
-      GLIBC_BIN = "${lib.getBin glibc}/bin";
+      GETOPT = lib.meta.getExe' util-linux "getopt";
+      GLIBC_BIN = "${lib.attrsets.getBin glibc}/bin";
       GLIBC_I18N = "${glibc}/share/i18n";
-      LD_LINUX = "${lib.getLib glibc}/lib/ld-linux-aarch64.so.1";
-      LDCONFIG = lib.getExe' (lib.getBin glibc) "ldconfig";
-      LSB_RELEASE = lib.getExe lsb-release;
-      LSOF = lib.getExe lsof;
-      LSPCI = lib.getExe lspciShim;
+      LD_LINUX = "${lib.attrsets.getLib glibc}/lib/ld-linux-aarch64.so.1";
+      LDCONFIG = lib.meta.getExe' (lib.attrsets.getBin glibc) "ldconfig";
+      LSB_RELEASE = lib.meta.getExe lsb-release;
+      LSOF = lib.meta.getExe lsof;
+      LSPCI = lib.meta.getExe lspciShim;
       NATIVE_RUNTIME = "${nativeRuntime}";
-      SH_BIN = "${lib.getBin bash}/bin/sh";
-      TASKSET = lib.getExe' util-linux "taskset";
+      SH_BIN = "${lib.attrsets.getBin bash}/bin/sh";
+      TASKSET = lib.meta.getExe' util-linux "taskset";
       TZDATA_ZONEINFO = "${tzdata}/share/zoneinfo";
       X11_LOCALE = "${libX11}/share/X11/locale";
-      XDG_OPEN = lib.getExe' xdg-utils "xdg-open";
-      XDG_USER_DIR = lib.getExe' xdg-user-dirs "xdg-user-dir";
-      ZENITY = lib.getExe yad;
+      XDG_OPEN = lib.meta.getExe' xdg-utils "xdg-open";
+      XDG_USER_DIR = lib.meta.getExe' xdg-user-dirs "xdg-user-dir";
+      ZENITY = lib.meta.getExe yad;
     } ./scripts/init.sh;
   };
 
@@ -286,6 +272,7 @@ let
     runtimeInputs = [ coreutils ];
     runtimeEnv = extraEnv;
     text = renderShell {
+      COMMON_SCRIPT = commonScript;
       NATIVE_LIBRARY_PATH = "${nativeRuntime}/lib";
     } ./scripts/guest.sh;
   };
@@ -336,6 +323,7 @@ let
       }
       ''
         shellcheck \
+          ${commonScriptSource} \
           ${./scripts/guest.sh} \
           ${./scripts/init.sh} \
           ${./scripts/launcher.sh} \
@@ -358,30 +346,31 @@ let
       CLIENT_UPDATE_CHANNEL = steam-arm64-client.updateChannel;
       COMPATIBILITY_TOOL_DIRECTORY = armProton.compatibilityToolDirectory;
       COMPATIBILITY_TOOL_VDF = "${compatibilityToolVdf}";
+      COMMON_SCRIPT = commonScript;
       CUSTOM_STEAM_HOME_DIR = if customSteamHomeDir == null then "" else customSteamHomeDir;
       DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;
-      ENV_BIN = lib.getExe' coreutils "env";
-      FLOCK = lib.getExe' util-linux "flock";
-      GUEST_LAUNCHER = lib.getExe guestLauncher;
+      ENV_BIN = lib.meta.getExe' coreutils "env";
+      FLOCK = lib.meta.getExe' util-linux "flock";
+      GUEST_LAUNCHER = lib.meta.getExe guestLauncher;
       HOST_LIBRARIES = "${nativeRuntime}/lib";
-      INIT_SCRIPT = lib.getExe initScript;
-      MEMORY_ARGS = lib.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
-      MUVM = lib.getExe muvm;
-      NETWORK_ARGS = lib.concatMap (specification: [
+      INIT_SCRIPT = lib.meta.getExe initScript;
+      MEMORY_ARGS = lib.lists.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
+      MUVM = lib.meta.getExe muvm;
+      NETWORK_ARGS = lib.lists.concatMap (specification: [
         "--publish"
         specification
       ]) publishPorts;
       PROTON_DIRECTORY = armProton.protonDirectory;
-      PROTON_CONFIGURATOR = lib.getExe protonConfigurator;
+      PROTON_CONFIGURATOR = lib.meta.getExe protonConfigurator;
       PROTON_RUNNER = "${./proton/run-proton}";
       PROTON_TOOL_NAME = armProton.toolName;
       PROTON_WRAPPER = "${./proton/steam-asahi-proton}";
       RUNTIME_APP_ID = armProton.runtimeAppId;
       RUNTIME_DIRECTORY = armProton.runtimeDirectory;
       TOOL_MANIFEST = "${./proton/toolmanifest.vdf}";
-      VRAM_ARGS = lib.optionals (vramMiB != null) [ "--vram=${toString vramMiB}" ];
-      YAD = lib.getExe yad;
+      VRAM_ARGS = lib.lists.optionals (vramMiB != null) [ "--vram=${toString vramMiB}" ];
+      YAD = lib.meta.getExe yad;
     } ./scripts/launcher.sh;
 
     meta = {
@@ -418,11 +407,8 @@ symlinkJoin {
   paths = [
     launcher
     desktopItem
+    steamIcons
   ];
-  postBuild = ''
-    mkdir -p "$out/share"
-    ln -s ${steam-unwrapped}/share/icons "$out/share/icons"
-  '';
   inherit (launcher) meta;
   passthru = {
     inherit customSteamHomeDir steam-arm64-client;

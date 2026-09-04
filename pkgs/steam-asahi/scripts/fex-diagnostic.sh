@@ -7,31 +7,23 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
+
 main() {
   (( $# == 1 )) || {
     printf '%s\n' 'usage: fex-diagnostic.sh command' >&2
     return 2
   }
 
-  export PATH="/usr/local/bin:/usr/bin:/bin${PATH:+:${PATH}}"
-  unset \
-    LANGUAGE \
-    LC_ADDRESS \
-    LC_COLLATE \
-    LC_CTYPE \
-    LC_IDENTIFICATION \
-    LC_MEASUREMENT \
-    LC_MESSAGES \
-    LC_MONETARY \
-    LC_NAME \
-    LC_NUMERIC \
-    LC_PAPER \
-    LC_TELEPHONE \
-    LC_TIME
-  export LC_ALL=C.UTF-8
-  export LANG=C.UTF-8
+  prepend_colon_path PATH "${GUEST_PATH_ENTRIES[@]}"
+  unset -v "${HOST_LOCALE_VARIABLES[@]}"
+  export LC_ALL="${C_LOCALE}"
+  export LANG="${C_LOCALE}"
 
-  exec "${BASH}" -c "${1}"
+  exec "${BASH}" -c "$1"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

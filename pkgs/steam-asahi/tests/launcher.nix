@@ -65,7 +65,7 @@ runCommand "steam-asahi-launcher-test" { } ''
   mkdir -p "$rootfs_directory"
   touch "$rootfs_directory/test.sqsh"
 
-  ${lib.getExe package} \
+  ${lib.meta.getExe package} \
     'steam://open/games?filter=ready to play' \
     2>"$HOME/audio-warning"
   grep -F \
@@ -101,11 +101,11 @@ runCommand "steam-asahi-launcher-test" { } ''
 
   # A complete bootstrap is preserved on subsequent launches.
   printf '%s\n' preserved > "$data_directory/steam-launcher/bin_steam.sh"
-  ${lib.getExe package}
+  ${lib.meta.getExe package}
   grep -Fx preserved "$data_directory/steam-launcher/bin_steam.sh"
 
   diagnostic_command='printf "%s\n" "hello world"'
-  ${lib.getExe package} --fex "$diagnostic_command"
+  ${lib.meta.getExe package} --fex "$diagnostic_command"
   grep -F -- '-fex-diagnostic.sh' "$HOME/muvm-arguments"
   fex_line=$(grep -Fn -- '/bin/FEXBash' "$HOME/muvm-arguments" \
     | cut -d: -f1)
@@ -121,7 +121,7 @@ runCommand "steam-asahi-launcher-test" { } ''
 
   # The diagnostic interface accepts one explicit shell program. Requiring the
   # caller to quote it avoids silently joining and reparsing an argv array.
-  if ${lib.getExe package} --fex uname -m; then
+  if ${lib.meta.getExe package} --fex uname -m; then
     printf '%s\n' 'multi-argument diagnostic unexpectedly succeeded' >&2
     exit 1
   fi
@@ -129,7 +129,7 @@ runCommand "steam-asahi-launcher-test" { } ''
   # Starting the host launcher from an existing muvm/FEX shell must fail
   # before it attempts nested virtualization.
   mkdir -p /tmp/steam-asahi-muvm-host
-  if ${lib.getExe package} 2>"$HOME/nested-muvm-error"; then
+  if ${lib.meta.getExe package} 2>"$HOME/nested-muvm-error"; then
     printf '%s\n' 'nested muvm launch unexpectedly succeeded' >&2
     exit 1
   fi

@@ -7,163 +7,132 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${BASH_BIN:?internal configuration was not injected}"
-: "${ENV_BIN:?internal configuration was not injected}"
-: "${FUSERMOUNT:?internal configuration was not injected}"
-: "${FUSERMOUNT3:?internal configuration was not injected}"
-: "${GLIBC_I18N:?internal configuration was not injected}"
-: "${LSB_RELEASE:?internal configuration was not injected}"
-: "${LSPCI:?internal configuration was not injected}"
-: "${PACTL:?internal configuration was not injected}"
-: "${SH_BIN:?internal configuration was not injected}"
-: "${ZENITY:?internal configuration was not injected}"
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
 
-readonly BASH_BIN
-readonly ENV_BIN
-readonly -a ETC_STUB_DIRS
-readonly -a ETC_STUB_FILES
-readonly -a ETC_SYMLINKS_TO_MATERIALIZE
-readonly FUSERMOUNT
-readonly FUSERMOUNT3
-readonly GLIBC_I18N
-readonly LSB_RELEASE
-readonly LSPCI
-readonly PACTL
-readonly SH_BIN
-readonly ZENITY
+readonly -a REQUIRED_CONFIGURATION_VARIABLES=(
+  BASH_BIN
+  ENV_BIN
+  FUSERMOUNT
+  FUSERMOUNT3
+  GLIBC_I18N
+  LSB_RELEASE
+  LSPCI
+  PACTL
+  SH_BIN
+  ZENITY
+)
+require_configuration_variables "${REQUIRED_CONFIGURATION_VARIABLES[@]}"
 
-readonly FHS_ROOT=/run/fhs
-readonly PRESSURE_VESSEL_SHARE=\
-"${FHS_ROOT}/usr/lib/pressure-vessel/overrides/share"
-readonly VULKAN_SHARE="${FHS_ROOT}/usr/share/vulkan"
-readonly VULKAN_OVERRIDES="${PRESSURE_VESSEL_SHARE}/vulkan"
-
-materialize_etc_symlink() {
-  local file_name=$1
-  local path="${FHS_ROOT}/etc/${file_name}"
-  local target
-
-  [[ -L "${path}" ]] || return 0
-  target=$(readlink -f -- "${path}" 2>/dev/null) || return 0
-  rm -f -- "${path}"
-
-  if [[ -f "${target}" ]]; then
-    cp -- "${target}" "${path}"
-  elif [[ -d "${target}" ]]; then
-    mkdir -p -- "${path}"
-    cp -a -- "${target}/." "${path}/"
-  fi
-}
+readonly -A FHS_COMMAND_LINKS=(
+  ["bin/bash"]="${BASH_BIN}"
+  ["bin/lsb_release"]="${LSB_RELEASE}"
+  ["bin/lspci"]="${LSPCI}"
+  ["bin/pactl"]="${PACTL}"
+  ["bin/sh"]="${SH_BIN}"
+  ["bin/zenity"]="${ZENITY}"
+  ["usr/bin/env"]="${ENV_BIN}"
+  ["usr/bin/lsb_release"]="${LSB_RELEASE}"
+  ["usr/bin/pactl"]="${PACTL}"
+  ["usr/bin/zenity"]="${ZENITY}"
+)
+readonly -A FHS_INTERNAL_LINKS=(
+  ["usr/bin/lspci"]=bin/lspci
+)
+readonly -a FHS_BIND_DIRECTORIES=(
+  bin
+  usr
+)
+readonly -a FHS_COPY_DIRECTORIES=(
+  bin
+  usr
+)
+readonly -a FHS_CREATE_DIRECTORIES=(
+  bin
+  usr
+  usr/bin
+  usr/lib
+  usr/lib64
+)
+readonly -A FUSERMOUNT_WRAPPERS=(
+  ["fusermount"]="${FUSERMOUNT}"
+  ["fusermount3"]="${FUSERMOUNT3}"
+)
+# This private mount contains only the directory and two small helper binaries.
+readonly FUSERMOUNT_TMPFS_OPTIONS=\
+'nodev,noatime,nosymfollow,exec,suid,mode=0755,size=4M,nr_inodes=64'
 
 install_fhs_commands() {
-  ln -sf -- "${BASH_BIN}" "${FHS_ROOT}/bin/bash"
-  ln -sf -- "${SH_BIN}" "${FHS_ROOT}/bin/sh"
-  ln -sf -- "${LSPCI}" "${FHS_ROOT}/bin/lspci"
-  ln -sf -- "${PACTL}" "${FHS_ROOT}/bin/pactl"
-  ln -sf -- "${LSB_RELEASE}" "${FHS_ROOT}/bin/lsb_release"
-  ln -sf -- "${ZENITY}" "${FHS_ROOT}/bin/zenity"
+  local relative_path
 
-  ln -sf -- "${ENV_BIN}" "${FHS_ROOT}/usr/bin/env"
-  ln -sf -- "${FHS_ROOT}/bin/lspci" "${FHS_ROOT}/usr/bin/lspci"
-  ln -sf -- "${PACTL}" "${FHS_ROOT}/usr/bin/pactl"
-  ln -sf -- "${LSB_RELEASE}" "${FHS_ROOT}/usr/bin/lsb_release"
-  ln -sf -- "${ZENITY}" "${FHS_ROOT}/usr/bin/zenity"
-}
-
-# Mirrors Vulkan manifests into the locations used by the native loader and
-# Pressure Vessel.
-install_vulkan_metadata() {
-  local json
-  local layer
-  local source_directory
-  local subdirectory
-
-  mkdir -p -- "${VULKAN_SHARE}" "${VULKAN_OVERRIDES}"
-  for subdirectory in icd.d explicit_layer.d implicit_layer.d; do
-    source_directory="/run/opengl-driver/share/vulkan/${subdirectory}"
-    [[ -e "${source_directory}" ]] || continue
-    rm -rf -- "${VULKAN_SHARE:?}/${subdirectory}"
-    ln -s -- "${source_directory}" "${VULKAN_SHARE}/${subdirectory}"
-    mkdir -p -- "${VULKAN_OVERRIDES}/${subdirectory}"
-    for json in "${source_directory}"/*.json; do
-      if [[ -e "${json}" ]]; then
-        ln -sf -- "${json}" "${VULKAN_OVERRIDES}/${subdirectory}/"
-      fi
-    done
+  for relative_path in "${!FHS_COMMAND_LINKS[@]}"; do
+    ln --symbolic --force --no-target-directory -- \
+      "${FHS_COMMAND_LINKS[${relative_path}]}" \
+      "${FHS_ROOT}/${relative_path}"
   done
-
-  # Steam creates overlay and Fossilize layer metadata in users' XDG trees.
-  mkdir -p -- "${VULKAN_OVERRIDES}/implicit_layer.d"
-  for layer in /home/*/.local/share/vulkan/implicit_layer.d/steam*.json; do
-    if [[ -f "${layer}" ]]; then
-      cp -f -- \
-        "${layer}" \
-        "${VULKAN_OVERRIDES}/implicit_layer.d/" \
-        2>/dev/null \
-        || true
-    fi
+  for relative_path in "${!FHS_INTERNAL_LINKS[@]}"; do
+    ln --symbolic --force --no-target-directory -- \
+      "${FHS_ROOT}/${FHS_INTERNAL_LINKS[${relative_path}]}" \
+      "${FHS_ROOT}/${relative_path}"
   done
 }
 
 install_etc_overlay() {
-  local directory
-  local file_name
-
-  mkdir -p -- "${FHS_ROOT}/etc"
-  cp -a -- /etc/. "${FHS_ROOT}/etc/" 2>/dev/null || true
-
-  for file_name in "${ETC_SYMLINKS_TO_MATERIALIZE[@]}"; do
-    materialize_etc_symlink "${file_name}"
-  done
-  for directory in "${ETC_STUB_DIRS[@]}"; do
-    mkdir -p -- "${FHS_ROOT}/etc/${directory}"
-  done
-  for file_name in "${ETC_STUB_FILES[@]}"; do
-    touch -- "${FHS_ROOT}/etc/${file_name}"
-  done
-
-  mount --bind "${FHS_ROOT}/etc" /etc
+  populate_etc_overlay
+  mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/etc" /etc
 }
 
 install_fusermount_wrappers() {
-  mkdir -p -- /run/wrappers
-  mount -t tmpfs -o exec,suid tmpfs /run/wrappers
-  mkdir -p -- /run/wrappers/bin
-  cp -- "${FUSERMOUNT}" /run/wrappers/bin/fusermount
-  cp -- "${FUSERMOUNT3}" /run/wrappers/bin/fusermount3
-  chown root:root -- \
-    /run/wrappers/bin/fusermount \
-    /run/wrappers/bin/fusermount3
-  chmod u=srx,g=x,o=x -- \
-    /run/wrappers/bin/fusermount \
-    /run/wrappers/bin/fusermount3
+  local name
+  local wrappers_root=${WRAPPERS_BIN_DIRECTORY%/*}
+
+  mount \
+    "${MOUNT_BASE_ARGS[@]}" \
+    --mkdir=0755 \
+    --types=tmpfs \
+    --options="${FUSERMOUNT_TMPFS_OPTIONS}" \
+    tmpfs \
+    "${wrappers_root}"
+  mkdir -p -- "${WRAPPERS_BIN_DIRECTORY}"
+  for name in "${!FUSERMOUNT_WRAPPERS[@]}"; do
+    install \
+      --group=root \
+      --mode=u=srx,g=x,o=x \
+      --owner=root \
+      --no-target-directory \
+      -- \
+      "${FUSERMOUNT_WRAPPERS[${name}]}" \
+      "${WRAPPERS_BIN_DIRECTORY}/${name}"
+  done
 }
 
 main() {
   # /usr is read-only in the guest. Construct a writable FHS tree in tmpfs,
   # then bind it over the inherited host directories.
-  mkdir -p -- "${FHS_ROOT}/bin" "${FHS_ROOT}/usr"
-  cp -a -- /bin/. "${FHS_ROOT}/bin/" 2>/dev/null || true
-  cp -a -- /usr/. "${FHS_ROOT}/usr/" 2>/dev/null || true
-  mkdir -p -- \
-    "${FHS_ROOT}/usr/bin" \
-    "${FHS_ROOT}/usr/lib" \
-    "${FHS_ROOT}/usr/lib64"
+  create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}"
+  copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}"
 
   install_fhs_commands
 
   # Pressure Vessel generates locales from glibc's charmaps when needed.
   mkdir -p -- "${FHS_ROOT}/usr/share"
-  rm -rf -- "${FHS_ROOT}/usr/share/i18n"
-  ln -s -- "${GLIBC_I18N}" "${FHS_ROOT}/usr/share/i18n"
+  rm --force --recursive --one-file-system --preserve-root=all -- \
+    "${FHS_ROOT}/usr/share/i18n"
+  ln --symbolic --no-target-directory -- \
+    "${GLIBC_I18N}" \
+    "${FHS_ROOT}/usr/share/i18n"
 
-  install_vulkan_metadata
-  mount --bind "${FHS_ROOT}/bin" /bin
-  mount --bind "${FHS_ROOT}/usr" /usr
+  # Steam creates overlay and Fossilize layer metadata in users' XDG trees.
+  install_vulkan_metadata \
+    /home/*/.local/share/vulkan/implicit_layer.d/steam*.json
+  bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}"
   install_etc_overlay
   install_fusermount_wrappers
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  shopt -s array_expand_once inherit_errexit nullglob
   main "$@"
 fi

@@ -64,7 +64,7 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   printf '%s\n' registry-login > "$sourceHome/.steam/registry.vdf"
   printf '%s\n' pulse-cookie > "$XDG_CONFIG_HOME/pulse/cookie"
 
-  ${lib.getExe package} --import-login steam://open/games \
+  ${lib.meta.getExe package} --import-login steam://open/games \
     2>"$HOME/audio-warning"
   grep -F \
     "WARNING: PulseAudio socket not found at $XDG_RUNTIME_DIR/pulse/native." \
@@ -87,12 +87,12 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   # A second launch repairs the Pulse cookie, selects ARM Proton for one app,
   # and opens that app so Steam can replace an incompatible Linux depot.
   chmod 0644 "$isolatedHome/.config/pulse/cookie"
-  ${lib.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
+  ${lib.meta.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
   configHash=$(sha256sum "$steamDirectory/config/config.vdf")
   backupHash=$(sha256sum \
     "$steamDirectory/config/config.vdf.steam-asahi-backup")
   # Reapplying the same mapping must not rewrite either configuration file.
-  ${lib.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
+  ${lib.meta.getExe package} --force-proton 250900 2>>"$HOME/audio-warning"
   test "$(sha256sum "$steamDirectory/config/config.vdf")" = "$configHash"
   test "$(sha256sum \
     "$steamDirectory/config/config.vdf.steam-asahi-backup")" = "$backupHash"

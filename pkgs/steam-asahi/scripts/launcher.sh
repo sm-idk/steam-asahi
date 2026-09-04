@@ -2,66 +2,88 @@
 # shellcheck shell=bash
 #
 # Prepares the FEX and Steam state, then launches Steam through muvm and FEX.
+# Nix supplies Bash 5.3; `${ command; }` captures output without a subshell.
 
 set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${ENV_BIN:?internal configuration was not injected}"
-: "${FEX_BASH:?internal configuration was not injected}"
-: "${FEX_DIAGNOSTIC_SCRIPT:?internal configuration was not injected}"
-: "${FEX_ROOTFS_FETCHER:?internal configuration was not injected}"
-: "${FEX_STEAM_SCRIPT:?internal configuration was not injected}"
-: "${INIT_SCRIPT:?internal configuration was not injected}"
-: "${MUVM:?internal configuration was not injected}"
-: "${MUVM_HOST_MOUNT:?internal configuration was not injected}"
-: "${MUVM_PATH:?internal configuration was not injected}"
-: "${STEAM_BOOTSTRAP:?internal configuration was not injected}"
-: "${YAD:?internal configuration was not injected}"
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
 
-readonly ENV_BIN
+readonly -a REQUIRED_CONFIGURATION_VARIABLES=(
+  ENV_BIN
+  FEX_BASH
+  FEX_DIAGNOSTIC_SCRIPT
+  FEX_ROOTFS_FETCHER
+  FEX_STEAM_SCRIPT
+  INIT_SCRIPT
+  MUVM
+  MUVM_HOST_MOUNT
+  MUVM_PATH
+  STEAM_BOOTSTRAP
+  YAD
+)
+require_configuration_variables "${REQUIRED_CONFIGURATION_VARIABLES[@]}"
+# These values implement interfaces provided by the sourced common module.
+: "${ENV_BIN}" "${YAD}"
+
 readonly -a EXTRA_ENVIRONMENT_ARGS
-readonly FEX_BASH
-readonly FEX_DIAGNOSTIC_SCRIPT
-readonly FEX_ROOTFS_FETCHER
-readonly FEX_STEAM_SCRIPT
-readonly INIT_SCRIPT
-readonly MUVM
-readonly MUVM_HOST_MOUNT
 readonly -a MUVM_MEMORY_ARGS
 readonly -a MUVM_NETWORK_ARGS
-readonly MUVM_PATH
 readonly -a MUVM_VRAM_ARGS
-readonly STEAM_BOOTSTRAP
-readonly YAD
 
-readonly -a CLEAN_ENVIRONMENT_ARGS=(
-  -u BASH_ENV
-  -u ENV
-  -u LANGUAGE
-  -u LC_ADDRESS
-  -u LC_COLLATE
-  -u LC_CTYPE
-  -u LC_IDENTIFICATION
-  -u LC_MEASUREMENT
-  -u LC_MESSAGES
-  -u LC_MONETARY
-  -u LC_NAME
-  -u LC_NUMERIC
-  -u LC_PAPER
-  -u LC_TELEPHONE
-  -u LC_TIME
-  LANG=C.UTF-8
-  LC_ALL=C.UTF-8
-)
-
-# FEXBash passes nonempty argv to `/bin/sh -c`. Use a command string that
-# makes the remaining argv actual arguments to our non-executable store script.
+# FEXBash passes nonempty argv to `/bin/sh -c`. This command string makes the
+# remaining argv actual arguments to our non-executable store script.
 readonly FEX_BASH_COMMAND='exec /bin/bash "$@"'
+readonly FEX_ROOTFS_CONFIG_PATTERN=\
+'"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"'
+readonly FEX_ROOTFS_DISTRIBUTION=Fedora
+readonly FEX_ROOTFS_DISTRIBUTION_VERSION=44
+readonly FEX_ROOTFS_DOWNLOAD_SIZE='~1.3 GB'
+readonly -a FEX_ROOTFS_EXTENSIONS=(
+  ero
+  img
+  sqsh
+)
+readonly -a FEX_ROOTFS_FETCH_ARGS=(
+  --assume-yes
+  "--distro-name=${FEX_ROOTFS_DISTRIBUTION}"
+  "--distro-version=${FEX_ROOTFS_DISTRIBUTION_VERSION}"
+  --distro-list-first
+  --as-is
+)
+readonly -a MUVM_GUEST_PATH_ENTRIES=(
+  "${WRAPPERS_BIN_DIRECTORY}"
+  "${MUVM_PATH}"
+  "${GUEST_PATH_ENTRIES[@]}"
+)
+join_colon_values GUEST_PATH "${MUVM_GUEST_PATH_ENTRIES[@]}"
+readonly GUEST_PATH
+readonly -a MUVM_BASE_ARGS=(
+  --emu=fex
+  --gpu-mode=drm
+  "${MUVM_MEMORY_ARGS[@]}"
+  "${MUVM_VRAM_ARGS[@]}"
+  "${MUVM_NETWORK_ARGS[@]}"
+  --execute-pre "${INIT_SCRIPT}"
+  --interactive
+  -e "PATH=${GUEST_PATH}"
+)
+readonly SPLASH_HOLD_SECONDS=10
 
-die() {
-  printf 'ERROR: %s\n' "$*" >&2
-  exit 1
+is_fex_rootfs() {
+  local extension
+  local path=$1
+
+  [[ -e "${path}" ]] || return 1
+  [[ -d "${path}" ]] && return 0
+  for extension in "${FEX_ROOTFS_EXTENSIONS[@]}"; do
+    [[ "${path}" == *."${extension}" ]] && return 0
+  done
+  return 1
 }
 
 # muvm exposes the host filesystem at this mount point inside its guest. A
@@ -71,25 +93,14 @@ reject_muvm_guest() {
     'Already inside a muvm guest. Exit FEXBash and run steam-asahi on the host.'
 }
 
-warn_missing_audio_socket() {
-  local runtime_directory="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
-  local socket_path="${runtime_directory}/pulse/native"
-
-  [[ -S "${socket_path}" ]] && return
-  printf 'WARNING: PulseAudio socket not found at %s.\n' \
-    "${socket_path}" >&2
-  printf '%s\n' \
-    'Steam audio needs PipeWire Pulse or PulseAudio on the host.' \
-    'Enable one of them and restart Steam Asahi.' >&2
-}
-
 # Detects an existing FEX rootfs across legacy and XDG layouts, downloading a
 # pinned distro image only when no usable configuration exists.
 ensure_fex_rootfs() {
   local config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
   local fex_config
-  local fex_configured=false
+  local fex_config_contents
+  local -i fex_configured=0
   local fex_data_directory
   local rootfs_path
 
@@ -105,92 +116,38 @@ ensure_fex_rootfs() {
 
   if [[ -d "${fex_data_directory}/RootFS" ]]; then
     for rootfs_path in "${fex_data_directory}"/RootFS/*; do
-      [[ -e "${rootfs_path}" ]] || continue
-      case "${rootfs_path}" in
-        *.ero | *.sqsh | *.img)
-          fex_configured=true
-          break
-          ;;
-      esac
-      if [[ -d "${rootfs_path}" ]]; then
-        fex_configured=true
+      if is_fex_rootfs "${rootfs_path}"; then
+        fex_configured=1
         break
       fi
     done
   fi
 
-  if [[ "${fex_configured}" == 'false' && -f "${fex_config}" ]]; then
-    if grep -qE \
-      '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' \
-      "${fex_config}" 2>/dev/null; then
-      fex_configured=true
+  if (( ! fex_configured )) && [[ -r "${fex_config}" ]]; then
+    fex_config_contents=$(<"${fex_config}")
+    if [[ "${fex_config_contents}" =~ ${FEX_ROOTFS_CONFIG_PATTERN} ]]; then
+      fex_configured=1
     fi
   fi
 
-  if [[ "${fex_configured}" == 'false' ]]; then
-    printf '%s\n' \
-      'FEX rootfs not found. Downloading Fedora 43 rootfs...' \
-      'This is a one-time setup (~1.3GB download).'
-    "${FEX_ROOTFS_FETCHER}" \
-      --assume-yes \
-      --distro-name=Fedora \
-      --distro-version=43 \
-      --distro-list-first \
-      --as-is \
+  if (( ! fex_configured )); then
+    printf \
+      'FEX rootfs not found. Downloading %s %s rootfs...\n%s\n' \
+      "${FEX_ROOTFS_DISTRIBUTION}" \
+      "${FEX_ROOTFS_DISTRIBUTION_VERSION}" \
+      "This is a one-time setup (${FEX_ROOTFS_DOWNLOAD_SIZE} download)."
+    "${FEX_ROOTFS_FETCHER}" "${FEX_ROOTFS_FETCH_ARGS[@]}" \
       || die 'FEX rootfs download failed; run FEXRootFSFetcher manually.'
   fi
 }
 
-# Displays a bounded startup dialog without delaying or owning the Steam
-# process. The background watcher always removes its temporary marker.
 show_splash() {
   local cef_log="${HOME}/.local/share/Steam/logs/cef_log.txt"
-  local -i attempt
-  local launcher_pid=$$
-  local marker
-  local splash_pid
-  local ui_started=false
 
-  [[ "${STEAM_ASAHI_NO_SPLASH:-0}" == 1 || -t 0 || -t 1 ]] && return
-
-  marker=$(mktemp)
-  "${YAD}" --no-buttons --center --borders=16 \
-    --title='Steam' --window-icon=steam \
-    --text='Starting Steam (microVM + FEX)...' &
-  splash_pid=$!
-
-  (
-    trap 'kill "${splash_pid}" 2>/dev/null || true; rm -f -- "${marker}"' EXIT
-
-    for (( attempt = 0; attempt < 180; attempt += 1 )); do
-      kill -0 "${launcher_pid}" 2>/dev/null || break
-      if [[ -f "${cef_log}" && "${cef_log}" -nt "${marker}" ]]; then
-        ui_started=true
-        break
-      fi
-      sleep 1
-    done
-
-    [[ "${ui_started}" == 'true' ]] && sleep 10
-  ) &
-}
-
-write_managed_value() {
-  local destination=$1
-  local temporary_path
-  local value=$2
-
-  temporary_path=$(mktemp \
-    --tmpdir="$(dirname -- "${destination}")" \
-    ".$(basename -- "${destination}").XXXXXX")
-  if ! printf '%s\n' "${value}" >"${temporary_path}"; then
-    rm -f -- "${temporary_path}"
-    return 1
-  fi
-  if ! mv -f -- "${temporary_path}" "${destination}"; then
-    rm -f -- "${temporary_path}"
-    return 1
-  fi
+  show_startup_splash \
+    "${cef_log}" \
+    "${SPLASH_HOLD_SECONDS}" \
+    'Starting Steam (microVM + FEX)...'
 }
 
 # Installs the immutable bootstrap into user-writable state exactly once while
@@ -206,8 +163,10 @@ install_steam_bootstrap() {
 
   printf '%s\n' 'Setting up Steam bootstrap...'
   mkdir -p -- "${data_directory}"
-  cp -a -- "${STEAM_BOOTSTRAP}" "${data_directory}/"
-  chmod -R u+rwX -- "${data_directory}/steam-launcher"
+  cp --archive --no-target-directory -- \
+    "${STEAM_BOOTSTRAP}" \
+    "${data_directory}/steam-launcher"
+  chmod -RP u+rwX -- "${data_directory}/steam-launcher"
   write_managed_value "${marker}" ok
   printf '%s\n' 'Steam bootstrap ready.'
 }
@@ -215,16 +174,9 @@ install_steam_bootstrap() {
 run_fex_diagnostic() {
   local command=$1
 
-  exec "${ENV_BIN}" \
-    "${CLEAN_ENVIRONMENT_ARGS[@]}" \
+  run_in_clean_environment \
     "${MUVM}" \
-    --gpu-mode=drm \
-    "${MUVM_MEMORY_ARGS[@]}" \
-    "${MUVM_VRAM_ARGS[@]}" \
-    "${MUVM_NETWORK_ARGS[@]}" \
-    --execute-pre "${INIT_SCRIPT}" \
-    --interactive \
-    -e "PATH=/run/wrappers/bin:${MUVM_PATH}:/usr/local/bin:/usr/bin:/bin" \
+    "${MUVM_BASE_ARGS[@]}" \
     -- \
     "${FEX_BASH}" "${FEX_BASH_COMMAND}" steam-asahi-fex \
     "${FEX_DIAGNOSTIC_SCRIPT}" "${command}"
@@ -235,30 +187,25 @@ run_steam() {
   shift
 
   printf '%s\n' 'Launching Steam via muvm + FEX...'
-  exec "${ENV_BIN}" \
-    "${CLEAN_ENVIRONMENT_ARGS[@]}" \
+  run_in_clean_environment \
     "${MUVM}" \
-    --gpu-mode=drm \
-    "${MUVM_MEMORY_ARGS[@]}" \
-    "${MUVM_VRAM_ARGS[@]}" \
-    "${MUVM_NETWORK_ARGS[@]}" \
-    --execute-pre "${INIT_SCRIPT}" \
-    --interactive \
-    -e "PATH=/run/wrappers/bin:${MUVM_PATH}:/usr/local/bin:/usr/bin:/bin" \
-    -e 'PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver' \
+    "${MUVM_BASE_ARGS[@]}" \
+    -e "PRESSURE_VESSEL_FILESYSTEMS_RO=${PRESSURE_VESSEL_FILESYSTEMS_RO}" \
     -e "STEAM_ASAHI_GUEST_UID=${EUID}" \
     "${EXTRA_ENVIRONMENT_ARGS[@]}" \
     -- \
     "${FEX_BASH}" "${FEX_BASH_COMMAND}" steam-asahi-fex \
     "${FEX_STEAM_SCRIPT}" \
     "${data_directory}/steam-launcher/bin_steam.sh" \
-    -cef-force-occlusion \
+    "${STEAM_CLIENT_ARGS[@]}" \
     "$@"
 }
 
 main() {
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
   local data_directory="${data_home}/steam-asahi"
+  # None of the installation globs depend on lexical order.
+  local -r GLOBSORT=nosort
 
   (( EUID != 0 )) || die 'Do not run steam-asahi as root'
   reject_muvm_guest
@@ -267,7 +214,7 @@ main() {
   if [[ "${1:-}" == '--fex' ]]; then
     shift
     (( $# == 1 )) || die "usage: steam-asahi --fex '<command>'"
-    run_fex_diagnostic "${1}"
+    run_fex_diagnostic "$1"
   fi
 
   warn_missing_audio_socket
@@ -277,5 +224,6 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  shopt -s inherit_errexit nullglob
   main "$@"
 fi

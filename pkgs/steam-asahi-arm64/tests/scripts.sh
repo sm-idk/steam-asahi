@@ -20,6 +20,17 @@ TEST_ROOT=$(mktemp -d)
 readonly TEST_ROOT
 TEST_SH=$(command -v sh)
 readonly TEST_SH
+readonly FORCE_PROTON_APP_ID=250900
+readonly TEST_APP_ID=12345
+readonly TEST_GUEST_COMMAND_EXIT_STATUS=23
+readonly TEST_PROTON_RUNNER_EXIT_STATUS=29
+readonly TEST_PROTON_RUNTIME_EXIT_STATUS=31
+readonly TEST_STEAM_RESTART_EXIT_STATUS=42
+export \
+  TEST_GUEST_COMMAND_EXIT_STATUS \
+  TEST_PROTON_RUNNER_EXIT_STATUS \
+  TEST_PROTON_RUNTIME_EXIT_STATUS \
+  TEST_STEAM_RESTART_EXIT_STATUS
 
 cleanup() {
   rm -rf -- "${TEST_ROOT}"
@@ -48,15 +59,34 @@ assert_file_contains_line() {
     fail "${path} does not contain line <${expected}>"
 }
 
+assert_file_lines() {
+  local description=$2
+  local expected
+  local index=0
+  local path=$1
+  local -a actual_lines
+
+  shift 2
+  mapfile -t actual_lines <"${path}"
+  assert_equal "$#" "${#actual_lines[@]}" "${description} count"
+  for expected in "$@"; do
+    assert_equal \
+      "${expected}" "${actual_lines[${index}]}" \
+      "${description} item ${index}"
+    index=$(( index + 1 ))
+  done
+}
+
 run_expect_status() {
   local expected_status=$1
   local status
 
   shift
-  set +o errexit
-  "$@"
-  status=$?
-  set -o errexit
+  if "$@"; then
+    status=0
+  else
+    status=$?
+  fi
   assert_equal "${expected_status}" "${status}" "unexpected exit status from $*"
 }
 
@@ -183,7 +213,6 @@ test_guest_launcher() {
   local guest_root="${TEST_ROOT}/guest"
   local runtime_tools="${guest_root}/data home/Steam/steamapps/common/\
 SteamLinuxRuntime_4-arm64/pressure-vessel/bin"
-  local -a guest_arguments
   local output="${guest_root}/output"
   local status_file="${guest_root}/attempts"
 
@@ -213,12 +242,12 @@ printf '%s\n' "${GIO_EXTRA_MODULES-unset}" >"${TEST_OUTPUT}/gio-extra-modules"
 printf '%s\n' "${XDG_DATA_DIRS}" >"${TEST_OUTPUT}/data-dirs"
 printf '%s\n' "${VK_DRIVER_FILES}" >"${TEST_OUTPUT}/vulkan-drivers"
 printf '%s\n' "$@" >"${TEST_OUTPUT}/arguments"
-((attempt == 1)) && exit 42
-exit 23
+((attempt == 1)) && exit "${TEST_STEAM_RESTART_EXIT_STATUS}"
+exit "${TEST_GUEST_COMMAND_EXIT_STATUS}"
 EOF
   chmod +x -- "${guest_root}/restart-command"
 
-  run_expect_status 23 \
+  run_expect_status "${TEST_GUEST_COMMAND_EXIT_STATUS}" \
     env -u LD_LIBRARY_PATH \
     NATIVE_LIBRARY_PATH=/declared/native \
     GIO_EXTRA_MODULES=/host/gio \
@@ -258,11 +287,11 @@ ${guest_root}/data home/Steam/steamrtarm64/libs:\
     'guest XDG data directories'
   assert_equal /custom/vulkan.json "$(<"${output}/vulkan-drivers")" \
     'guest Vulkan override preservation'
-  mapfile -t guest_arguments <"${output}/arguments"
-  assert_equal 2 "${#guest_arguments[@]}" 'guest argument count'
-  assert_equal \
-    'argument with spaces' "${guest_arguments[0]}" 'guest spaced argument'
-  assert_equal '*' "${guest_arguments[1]}" 'guest glob argument'
+  assert_file_lines \
+    "${output}/arguments" \
+    'guest argument' \
+    'argument with spaces' \
+    '*'
 
   run_expect_status 1 \
     env NATIVE_LIBRARY_PATH=/native \
@@ -277,7 +306,6 @@ test_proton_runner() {
   local fake_bin="${TEST_ROOT}/proton-runner/fake-bin"
   local output="${TEST_ROOT}/proton-runner/output"
   local tool="${TEST_ROOT}/proton-runner/tool with spaces"
-  local -a runner_arguments
 
   mkdir -p -- "${fake_bin}" "${output}" "${tool}/proton"
   cp -- "${PACKAGE_ROOT}/proton/run-proton" "${tool}/run-proton"
@@ -286,11 +314,11 @@ test_proton_runner() {
   cat >>"${fake_bin}/python3" <<'EOF'
 printf '%s\n' "${LD_LIBRARY_PATH}" >"${TEST_OUTPUT}/library-path"
 printf '%s\n' "$@" >"${TEST_OUTPUT}/arguments"
-exit 29
+exit "${TEST_PROTON_RUNNER_EXIT_STATUS}"
 EOF
   chmod +x -- "${fake_bin}/python3"
 
-  run_expect_status 29 \
+  run_expect_status "${TEST_PROTON_RUNNER_EXIT_STATUS}" \
     env -u LD_LIBRARY_PATH \
     PATH="${fake_bin}:${PATH}" \
     TEST_OUTPUT="${output}" \
@@ -303,19 +331,18 @@ EOF
     "${expected_library_path}" \
     "$(<"${output}/library-path")" \
     'Proton runner library path'
-  mapfile -t runner_arguments <"${output}/arguments"
-  assert_equal 3 "${#runner_arguments[@]}" 'Proton runner argument count'
-  assert_equal "${tool}/proton/proton" "${runner_arguments[0]}" 'Proton path'
-  assert_equal waitforexitandrun "${runner_arguments[1]}" 'Proton verb'
-  assert_equal \
-    'game with spaces.exe' "${runner_arguments[2]}" 'Proton game path'
+  assert_file_lines \
+    "${output}/arguments" \
+    'Proton runner argument' \
+    "${tool}/proton/proton" \
+    waitforexitandrun \
+    'game with spaces.exe'
 }
 
 test_proton_wrapper() {
   local output="${TEST_ROOT}/proton-wrapper/output"
   local standard_error="${TEST_ROOT}/proton-wrapper/stderr"
   local tool="${TEST_ROOT}/proton-wrapper/tool with spaces"
-  local -a wrapper_arguments
 
   mkdir -p -- "${output}" "${tool}/runtime"
   cp -- "${PACKAGE_ROOT}/proton/steam-asahi-proton" \
@@ -328,41 +355,45 @@ printf '%s\n' "${STEAM_COMPAT_APP_ID:-}" >"${TEST_OUTPUT}/app-id"
 printf '%s\n' "${STEAM_COMPAT_DATA_PATH:-}" >"${TEST_OUTPUT}/compat-data"
 printf '%s\n' "$@" >"${TEST_OUTPUT}/arguments"
 printf 'runtime output for app %s\n' "${STEAM_COMPAT_APP_ID:-unset}"
-exit 31
+exit "${TEST_PROTON_RUNTIME_EXIT_STATUS}"
 EOF
   chmod +x -- "${tool}/runtime/_v2-entry-point"
 
-  run_expect_status 31 \
-    env SteamAppId=12345 \
+  run_expect_status "${TEST_PROTON_RUNTIME_EXIT_STATUS}" \
+    env SteamAppId="${TEST_APP_ID}" \
     STEAM_COMPAT_DATA_PATH="${TEST_ROOT}/compatdata/0/" \
     TEST_OUTPUT="${output}" \
     "${tool}/steam-asahi-proton" run 'argument with spaces' \
     2>"${standard_error}"
 
-  assert_equal 12345 "$(<"${output}/app-id")" 'recovered Steam app ID'
   assert_equal \
-    "${TEST_ROOT}/compatdata/12345" \
+    "${TEST_APP_ID}" "$(<"${output}/app-id")" 'recovered Steam app ID'
+  assert_equal \
+    "${TEST_ROOT}/compatdata/${TEST_APP_ID}" \
     "$(<"${output}/compat-data")" \
     'repaired Steam compatdata path'
-  [[ -d ${TEST_ROOT}/compatdata/12345 ]] || fail 'compatdata was not created'
-  mapfile -t wrapper_arguments <"${output}/arguments"
-  assert_equal 5 "${#wrapper_arguments[@]}" 'runtime argument count'
-  assert_equal '--verb=run' "${wrapper_arguments[0]}" 'runtime verb'
-  assert_equal -- "${wrapper_arguments[1]}" 'runtime separator'
-  assert_equal "${tool}/run-proton" "${wrapper_arguments[2]}" 'runtime runner'
-  assert_equal run "${wrapper_arguments[3]}" 'runner verb'
-  assert_equal \
-    'argument with spaces' "${wrapper_arguments[4]}" 'runner argument'
+  [[ -d ${TEST_ROOT}/compatdata/${TEST_APP_ID} ]] \
+    || fail 'compatdata was not created'
+  assert_file_lines \
+    "${output}/arguments" \
+    'runtime argument' \
+    '--verb=run' \
+    -- \
+    "${tool}/run-proton" \
+    run \
+    'argument with spaces'
   assert_file_contains_line \
     "${tool}/steam-asahi-proton.log" \
     'command: <argument with spaces>'
   assert_file_contains_line \
     "${standard_error}" \
-    'ERROR: Proton compatibility command exited with status 31.'
-  grep -F -- 'runtime output for app 12345' "${standard_error}" >/dev/null \
+    "ERROR: Proton compatibility command exited with status \
+${TEST_PROTON_RUNTIME_EXIT_STATUS}."
+  grep -F -- "runtime output for app ${TEST_APP_ID}" \
+    "${standard_error}" >/dev/null \
     || fail 'Proton failure output was not replayed to standard error'
 
-  run_expect_status 31 \
+  run_expect_status "${TEST_PROTON_RUNTIME_EXIT_STATUS}" \
     env SteamAppId=0 \
     STEAM_COMPAT_DATA_PATH="${TEST_ROOT}/probe/0" \
     TEST_OUTPUT="${output}" \
@@ -385,6 +416,17 @@ test_launcher() {
   local steam_directory="${steam_home}/.local/share/Steam"
   local compatibility_directory=\
 "${steam_directory}/compatibilitytools.d/test-proton"
+  local -ar executable_files=(
+    "${launcher_root}/bootstrap/steam"
+    "${launcher_root}/proton-runner"
+    "${launcher_root}/proton-wrapper"
+    "${steam_directory}/steamapps/common/Test Proton/proton"
+    "${steam_directory}/steamapps/common/Test Runtime/_v2-entry-point"
+  )
+  local -ar metadata_files=(
+    "${launcher_root}/compatibilitytool.vdf"
+    "${launcher_root}/toolmanifest.vdf"
+  )
 
   if ((EUID == 0)); then
     printf '%s\n' 'SKIP: launcher behavioral test refuses to run as root'
@@ -396,20 +438,8 @@ test_launcher() {
     "${launcher_root}/host-libs" \
     "${steam_directory}/steamapps/common/Test Proton" \
     "${steam_directory}/steamapps/common/Test Runtime"
-  touch -- \
-    "${launcher_root}/bootstrap/steam" \
-    "${launcher_root}/compatibilitytool.vdf" \
-    "${launcher_root}/toolmanifest.vdf" \
-    "${launcher_root}/proton-runner" \
-    "${launcher_root}/proton-wrapper" \
-    "${steam_directory}/steamapps/common/Test Proton/proton" \
-    "${steam_directory}/steamapps/common/Test Runtime/_v2-entry-point"
-  chmod +x -- \
-    "${launcher_root}/bootstrap/steam" \
-    "${launcher_root}/proton-runner" \
-    "${launcher_root}/proton-wrapper" \
-    "${steam_directory}/steamapps/common/Test Proton/proton" \
-    "${steam_directory}/steamapps/common/Test Runtime/_v2-entry-point"
+  touch -- "${executable_files[@]}" "${metadata_files[@]}"
+  chmod +x -- "${executable_files[@]}"
   printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/configurator"
   cat >>"${launcher_root}/configurator" <<'EOF'
 printf '%s\n' "$@" >"${TEST_CONFIGURATOR_OUTPUT}"
@@ -460,7 +490,7 @@ EOF
       bash "${PACKAGE_ROOT}/scripts/launcher.sh" "$@"
   }
 
-  run_test_launcher --force-proton 250900
+  run_test_launcher --force-proton "${FORCE_PROTON_APP_ID}"
 
   [[ -x ${steam_directory}/steamrtarm64/steam ]] ||
     fail 'Steam bootstrap was not installed'
@@ -475,11 +505,13 @@ EOF
     fail 'managed host-library link was not installed'
   assert_file_contains_line "${output}" '--gpu-mode=drm'
   assert_file_contains_line "${output}" '--steam'
-  assert_file_contains_line "${output}" 'steam://run/250900'
+  assert_file_contains_line \
+    "${output}" "steam://run/${FORCE_PROTON_APP_ID}"
   assert_file_contains_line \
     "${configurator_output}" \
     "${steam_directory}/config/config.vdf"
-  assert_file_contains_line "${configurator_output}" 250900
+  assert_file_contains_line \
+    "${configurator_output}" "${FORCE_PROTON_APP_ID}"
   assert_file_contains_line "${configurator_output}" proton_test
 
   local hold_file="${launcher_root}/hold-muvm"
@@ -495,7 +527,7 @@ EOF
       || fail 'background launcher exited before acquiring its lock'
     sleep 0.05
   done
-  if run_test_launcher --force-proton 250900 \
+  if run_test_launcher --force-proton "${FORCE_PROTON_APP_ID}" \
     2>"${launcher_root}/lock-error"; then
     fail 'a second launcher bypassed the host-side Steam lock'
   fi

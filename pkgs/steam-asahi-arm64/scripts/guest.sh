@@ -7,13 +7,19 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${NATIVE_LIBRARY_PATH:?internal configuration was not injected}"
-readonly NATIVE_LIBRARY_PATH
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
+require_configuration_variables NATIVE_LIBRARY_PATH
 
-die() {
-  printf 'ERROR: %s\n' "$*" >&2
-  exit 1
-}
+readonly STEAM_RESTART_DELAY_SECONDS=1
+# Valve's client uses this status to request an in-process relaunch.
+readonly STEAM_RESTART_EXIT_STATUS=42
+readonly -a X86_OVERLAY_LINKS=(
+  bin32
+  bin64
+)
 
 # Steam updates recreate x86 overlay links under ~/.steam. Preloading those
 # libraries into the ARM64 launch shell fails before Proton can start. The x86
@@ -21,7 +27,7 @@ die() {
 disable_x86_overlay_preloads() {
   local link_name
 
-  for link_name in bin32 bin64; do
+  for link_name in "${X86_OVERLAY_LINKS[@]}"; do
     if [[ -L "${HOME}/.steam/${link_name}" ]]; then
       rm -f -- "${HOME}/.steam/${link_name}"
     fi
@@ -31,11 +37,14 @@ disable_x86_overlay_preloads() {
 main() {
   local candidate
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  local -a path_entries=("${GUEST_PATH_ENTRIES[@]}")
+  local -a library_directories
   local runtime_tools_directory=
   local steamapps_directory="${data_home}/Steam/steamapps/common"
   local status
   local steam_native_directory
   local usage
+  local relative_path
 
   printf -v usage '%s%s' \
     'usage: steam-asahi-arm64-guest [--steam] command ' \
@@ -44,45 +53,40 @@ main() {
   (( $# > 0 )) || die "${usage}"
 
   # The ARM client invokes this bundled service by its unqualified name.
-  for candidate in \
-    "${steamapps_directory}/SteamLinuxRuntime_4-arm64/pressure-vessel/bin" \
-    "${steamapps_directory}/SteamLinuxRuntime_soldier/\
-pressure-vessel-arm64/bin"; do
+  for relative_path in "${ARM64_RUNTIME_TOOL_RELATIVE_DIRECTORIES[@]}"; do
+    candidate="${steamapps_directory}/${relative_path}"
     if [[ -x "${candidate}/steam-runtime-launcher-service" ]]; then
       runtime_tools_directory=${candidate}
       break
     fi
   done
-  export PATH="/usr/local/bin:/usr/bin:/bin\
-${runtime_tools_directory:+:${runtime_tools_directory}}${PATH:+:${PATH}}"
-  steam_native_directory="${data_home}/Steam/steamrtarm64"
+  if [[ -n "${runtime_tools_directory}" ]]; then
+    path_entries+=("${runtime_tools_directory}")
+  fi
+  prepend_colon_path PATH "${path_entries[@]}"
+  steam_native_directory="${data_home}/Steam/${ARM64_CLIENT_DIRECTORY_NAME}"
 
   # Prefer Valve's coherent client runtime over same-SONAME Nix libraries, then
   # fall back to the system Asahi graphics stack and declared native libraries.
-  export LD_LIBRARY_PATH="${steam_native_directory}:\
-${steam_native_directory}/libs:\
-/run/opengl-driver/lib:\
-${NATIVE_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  library_directories=(
+    "${steam_native_directory}"
+    "${steam_native_directory}/libs"
+    "${OPENGL_DRIVER_ROOT}/lib"
+    "${NATIVE_LIBRARY_PATH}"
+  )
+  prepend_colon_path LD_LIBRARY_PATH "${library_directories[@]}"
   export PULSE_SERVER="unix:/run/user/${EUID}/pulse/native"
   export SDL_AUDIODRIVER=pulseaudio
-  export XDG_DATA_DIRS="/run/opengl-driver/share:\
-/run/current-system/sw/share:/usr/local/share:/usr/share\
-${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}"
-  export LIBGL_DRIVERS_PATH="${LIBGL_DRIVERS_PATH:-/run/opengl-driver/lib/dri}"
-  export __EGL_VENDOR_LIBRARY_DIRS="${__EGL_VENDOR_LIBRARY_DIRS:-\
-/run/opengl-driver/share/glvnd/egl_vendor.d}"
-  export LIBVA_DRIVERS_PATH="${LIBVA_DRIVERS_PATH:-/run/opengl-driver/lib/dri}"
-  export VDPAU_DRIVER_PATH="${VDPAU_DRIVER_PATH:-/run/opengl-driver/lib/vdpau}"
-  export VK_DRIVER_FILES="${VK_DRIVER_FILES:-\
-/run/opengl-driver/share/vulkan/icd.d/asahi_icd.aarch64.json}"
-  export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-asahi}"
-  export LC_ALL=C.UTF-8
-  export LANG=C.UTF-8
-  export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive
-  export TZDIR=/usr/share/zoneinfo
-  unset GIO_EXTRA_MODULES
+  prepend_colon_path XDG_DATA_DIRS "${GUEST_DATA_DIRECTORIES[@]}"
+  export_default_environment COMMON_DRIVER_ENVIRONMENT
+  export_default_environment ARM64_DRIVER_ENVIRONMENT
+  export LC_ALL="${C_LOCALE}"
+  export LANG="${C_LOCALE}"
+  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE_PATH}"
+  export TZDIR="${TZDATA_DIRECTORY}"
+  unset -v GIO_EXTRA_MODULES
 
-  if [[ "${1}" == '--steam' ]]; then
+  if [[ "$1" == '--steam' ]]; then
     shift
     (( $# > 0 )) || die 'the --steam option requires a command'
 
@@ -94,14 +98,14 @@ ${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}"
         status=$?
       fi
 
-      if (( status != 42 )); then
+      if (( status != STEAM_RESTART_EXIT_STATUS )); then
         return "${status}"
       fi
 
       printf '%s%s\n' \
         'Steam requested a client restart; relaunching inside the existing ' \
         'microVM...'
-      sleep 1
+      sleep "${STEAM_RESTART_DELAY_SECONDS}"
     done
   fi
 
@@ -109,5 +113,6 @@ ${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  shopt -s array_expand_once
   main "$@"
 fi

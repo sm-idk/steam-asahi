@@ -7,7 +7,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${STEAM_ASAHI_GUEST_UID:?guest UID was not provided}"
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
+require_configuration_variables STEAM_ASAHI_GUEST_UID
 
 main() {
   (( $# > 0 )) || {
@@ -15,40 +19,21 @@ main() {
     return 2
   }
 
-  export PATH="/usr/local/bin:/usr/bin:/bin${PATH:+:${PATH}}"
+  prepend_colon_path PATH "${GUEST_PATH_ENTRIES[@]}"
   export PULSE_SERVER="unix:/run/user/${STEAM_ASAHI_GUEST_UID}/pulse/native"
   export SDL_AUDIODRIVER=pulseaudio
-  export XDG_DATA_DIRS="/run/opengl-driver/share:\
-/run/current-system/sw/share:/usr/local/share:/usr/share\
-${XDG_DATA_DIRS:+:${XDG_DATA_DIRS}}"
-  export LIBGL_DRIVERS_PATH="${LIBGL_DRIVERS_PATH:-/run/opengl-driver/lib/dri}"
-  export __EGL_VENDOR_LIBRARY_DIRS="${__EGL_VENDOR_LIBRARY_DIRS:-\
-/run/opengl-driver/share/glvnd/egl_vendor.d}"
-  export LIBVA_DRIVERS_PATH="${LIBVA_DRIVERS_PATH:-/run/opengl-driver/lib/dri}"
-  export VDPAU_DRIVER_PATH="${VDPAU_DRIVER_PATH:-/run/opengl-driver/lib/vdpau}"
-  unset \
-    GIO_EXTRA_MODULES \
-    LANGUAGE \
-    LC_ADDRESS \
-    LC_COLLATE \
-    LC_CTYPE \
-    LC_IDENTIFICATION \
-    LC_MEASUREMENT \
-    LC_MESSAGES \
-    LC_MONETARY \
-    LC_NAME \
-    LC_NUMERIC \
-    LC_PAPER \
-    LC_TELEPHONE \
-    LC_TIME
-  export LC_ALL=C.UTF-8
-  export LANG=C.UTF-8
-  export LOCALE_ARCHIVE=/run/current-system/sw/lib/locale/locale-archive
-  export TZDIR=/usr/share/zoneinfo
+  prepend_colon_path XDG_DATA_DIRS "${GUEST_DATA_DIRECTORIES[@]}"
+  export_default_environment COMMON_DRIVER_ENVIRONMENT
+  unset -v GIO_EXTRA_MODULES "${HOST_LOCALE_VARIABLES[@]}"
+  export LC_ALL="${C_LOCALE}"
+  export LANG="${C_LOCALE}"
+  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE_PATH}"
+  export TZDIR="${TZDATA_DIRECTORY}"
 
   exec "$@"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  shopt -s array_expand_once
   main "$@"
 fi

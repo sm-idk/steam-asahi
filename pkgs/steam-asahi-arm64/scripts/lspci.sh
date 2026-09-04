@@ -7,16 +7,16 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-main() {
-  local device_path
+: "${COMMON_SCRIPT:=${BASH_SOURCE[0]%/*}/../../scripts/common.sh}"
+# shellcheck source=/dev/null
+source "${COMMON_SCRIPT}"
+readonly COMMON_SCRIPT
 
-  if [[ -d /sys/bus/pci/devices ]]; then
-    for device_path in /sys/bus/pci/devices/*; do
-      [[ -e "${device_path}" ]] && exec lspci "$@"
-    done
-  fi
+main() {
+  run_lspci_if_devices_exist "$@"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  shopt -s nullglob
   main "$@"
 fi

@@ -5,7 +5,7 @@
 
 set -eu
 
-script_path=$(readlink -f "$0")
+script_path=$(readlink -f -- "$0")
 tool_directory=${script_path%/*}
 readonly script_path tool_directory
 
