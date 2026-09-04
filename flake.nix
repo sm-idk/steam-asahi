@@ -47,8 +47,8 @@
             };
       };
 
-      aarch64VmNodePkgs = pkgs.extend vmTestOverlay;
-      x86VmNodePkgs = x86TestPkgs.extend vmTestOverlay;
+      aarch64VmPkgs = pkgs.extend vmTestOverlay;
+      x86VmPkgs = x86TestPkgs.extend vmTestOverlay;
 
       # These tests execute only architecture-independent shell code, so keep
       # them runnable from the x86_64 machines commonly used for development.
@@ -64,6 +64,7 @@
       shellSources = nixpkgs.lib.fileset.toSource {
         root = ./.;
         fileset = nixpkgs.lib.fileset.unions [
+          ./pkgs/scripts/common.sh
           ./pkgs/steam-asahi/scripts/fex-diagnostic.sh
           ./pkgs/steam-asahi/scripts/fex-steam.sh
           ./pkgs/steam-asahi/scripts/init.sh
@@ -110,6 +111,7 @@
                 for shell_file in "''${shell_files[@]}"; do
                   IFS= read -r first_line < "''${shell_file}"
                   case "''${first_line}" in
+                    '# shellcheck shell=bash') ;;
                     '#!/usr/bin/env bash')
                       for option in errexit nounset pipefail; do
                         if ! grep -Fqx "set -o ''${option}" \
@@ -167,7 +169,7 @@
             tree-root-file = "flake.nix";
             formatter = {
               nixf-diagnose = {
-                command = nixpkgs.lib.getExe formatterPkgs.nixf-diagnose;
+                command = nixpkgs.lib.meta.getExe formatterPkgs.nixf-diagnose;
                 includes = [ "*.nix" ];
                 options = [
                   "--auto-fix"
@@ -183,7 +185,7 @@
                 priority = -1;
               };
               nixfmt = {
-                command = nixpkgs.lib.getExe formatterPkgs.nixfmt;
+                command = nixpkgs.lib.meta.getExe formatterPkgs.nixfmt;
                 includes = [ "*.nix" ];
               };
             };
@@ -205,6 +207,7 @@
           }
           ''
             shellcheck \
+              ${./pkgs/scripts/common.sh} \
               ${./pkgs/steam-asahi/scripts/fex-diagnostic.sh} \
               ${./pkgs/steam-asahi/scripts/fex-steam.sh} \
               ${./pkgs/steam-asahi/scripts/init.sh} \
@@ -220,6 +223,7 @@
               ${./pkgs/steam-asahi-arm64/proton/steam-asahi-proton}
 
             diagnostic_output=$(BASH_ENV= PATH= \
+              COMMON_SCRIPT=${./pkgs/scripts/common.sh} \
               ${x86TestPkgs.bash}/bin/bash -c \
               'exec ${x86TestPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
               ${./pkgs/steam-asahi/scripts/fex-diagnostic.sh} \
@@ -227,6 +231,7 @@
             test "$diagnostic_output" = /usr/local/bin:/usr/bin:/bin
 
             steam_output=$(BASH_ENV= PATH= GIO_EXTRA_MODULES=/host/gio \
+              COMMON_SCRIPT=${./pkgs/scripts/common.sh} \
               XDG_DATA_DIRS=/host/share \
               STEAM_ASAHI_GUEST_UID=1234 \
               ${x86TestPkgs.bash}/bin/bash -c \
@@ -252,30 +257,26 @@
 
       nixosVmTest =
         {
-          hostPkgs,
-          nodePkgs,
+          vmPkgs,
           pretendAarch64 ? false,
         }:
-        import ./modules/vm-test.nix {
-          inherit
-            hostPkgs
-            nodePkgs
-            pretendAarch64
-            ;
-          module = ./modules/steam-asahi.nix;
+        vmPkgs.testers.runNixOSTest {
+          imports = [ ./modules/vm-test.nix ];
+          _module.args = {
+            inherit pretendAarch64;
+            module = ./modules/steam-asahi.nix;
+          };
         };
 
       aarch64NixosVmTest = nixosVmTest {
-        hostPkgs = pkgs;
-        nodePkgs = aarch64VmNodePkgs;
+        vmPkgs = aarch64VmPkgs;
       };
 
       # The evaluation test separately proves that real x86 configurations are
       # rejected. Here only the module-local platform value is replaced so an
       # ordinary x86 contributor can boot-test the remaining NixOS integration.
       x86NixosVmTest = nixosVmTest {
-        hostPkgs = x86TestPkgs;
-        nodePkgs = x86VmNodePkgs;
+        vmPkgs = x86VmPkgs;
         pretendAarch64 = true;
       };
     in
@@ -284,7 +285,7 @@
         final: prev:
         let
           muvmFexFixVersion = "0.6.1";
-          nixpkgsMuvmHasFexFix = prev.lib.versionAtLeast prev.muvm.version muvmFexFixVersion;
+          nixpkgsMuvmHasFexFix = prev.lib.strings.versionAtLeast prev.muvm.version muvmFexFixVersion;
           overriddenMuvm = prev.muvm.overrideAttrs (old: {
             postPatch = (old.postPatch or "") + ''
               # muvm 0.6.0 predates FEXInterpreter being renamed to FEX.
@@ -301,7 +302,7 @@
           steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
           steam-asahi = final.callPackage ./pkgs/steam-asahi { };
 
-          muvm = prev.lib.warnIf nixpkgsMuvmHasFexFix ''
+          muvm = prev.lib.trivial.warnIf nixpkgsMuvmHasFexFix ''
             muvm >= ${muvmFexFixVersion} is now in nixpkgs; remove the muvm FEX-name override.
           '' (if nixpkgsMuvmHasFexFix then prev.muvm else overriddenMuvm);
         };
@@ -323,12 +324,12 @@
         formatting = aarch64Formatter.check self;
         steam-arm64-client-layout = pkgs.steam-arm64-client.tests.layout;
         steam-arm64-client-update-script = pkgs.steam-arm64-client.tests.updateScript;
-        steam-asahi = pkgs.steam-asahi;
+        inherit (pkgs) steam-asahi;
         steam-asahi-launcher = pkgs.callPackage ./pkgs/steam-asahi/tests/launcher.nix { };
         steam-asahi-module = nixosModuleCheck pkgs;
         steam-asahi-nixos-vm = aarch64NixosVmTest;
         steam-asahi-source-scripts = pkgs.steam-asahi.tests.sourceScripts;
-        steam-asahi-arm64 = pkgs.steam-asahi-arm64;
+        inherit (pkgs) steam-asahi-arm64;
         steam-asahi-arm64-launcher = pkgs.callPackage ./pkgs/steam-asahi-arm64/tests/launcher.nix { };
         steam-asahi-arm64-proton-scripts = pkgs.steam-asahi-arm64.tests.protonScripts;
         steam-asahi-arm64-source-scripts = pkgs.steam-asahi-arm64.tests.sourceScripts;
@@ -370,14 +371,14 @@
             inheritPath = false;
             name = "steam-asahi-x86";
             text = ''
-              exec ${pkgs.steam-asahi}/bin/steam-asahi "$@"
+              exec ${nixpkgs.lib.meta.getExe pkgs.steam-asahi} "$@"
             '';
           };
           arm64Command = pkgs.writeShellApplication {
             inheritPath = false;
             name = "steam-asahi-arm64";
             text = ''
-              exec ${pkgs.steam-asahi-arm64}/bin/steam-asahi "$@"
+              exec ${nixpkgs.lib.meta.getExe pkgs.steam-asahi-arm64} "$@"
             '';
           };
           arm64TestPackage = pkgs.steam-asahi-arm64.override {
@@ -387,7 +388,7 @@
             inheritPath = false;
             name = "steam-asahi-arm64-test";
             text = ''
-              exec ${arm64TestPackage}/bin/steam-asahi "$@"
+              exec ${nixpkgs.lib.meta.getExe arm64TestPackage} "$@"
             '';
           };
         in

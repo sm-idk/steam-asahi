@@ -5,19 +5,17 @@
 }:
 
 let
-  inherit (nixpkgs.lib)
+  inherit (nixpkgs.lib.lists)
     any
     elem
     filter
-    hasInfix
-    hasSuffix
     head
     map
-    optionalString
     take
     ;
+  inherit (nixpkgs.lib.strings) hasInfix hasSuffix optionalString;
 
-  moduleEvaluation = nixpkgs.lib.evalModules {
+  moduleEvaluation = nixpkgs.lib.modules.evalModules {
     class = "nixos";
     modules = [ module ];
   };
@@ -27,7 +25,7 @@ let
 
   rejectsWrongClass = builtins.tryEval (
     builtins.deepSeq
-      (nixpkgs.lib.evalModules {
+      (nixpkgs.lib.modules.evalModules {
         class = "darwin";
         modules = [ module ];
       }).graph
@@ -36,7 +34,7 @@ let
 
   rejectsImplementationWrongClass = builtins.tryEval (
     builtins.deepSeq
-      (nixpkgs.lib.evalModules {
+      (nixpkgs.lib.modules.evalModules {
         class = "darwin";
         modules = [ ./steam-asahi.nix ];
       }).graph
