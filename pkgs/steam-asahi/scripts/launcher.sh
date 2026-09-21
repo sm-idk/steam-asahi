@@ -31,6 +31,7 @@ require_configuration_variables "${REQUIRED_CONFIGURATION_VARIABLES[@]}"
 : "${ENV_BIN}" "${YAD}"
 
 readonly -a EXTRA_ENVIRONMENT_ARGS
+readonly -a MUVM_CPU_ARGS
 readonly -a MUVM_MEMORY_ARGS
 readonly -a MUVM_NETWORK_ARGS
 readonly -a MUVM_VRAM_ARGS
@@ -65,6 +66,7 @@ readonly GUEST_PATH
 readonly -a MUVM_BASE_ARGS=(
   --emu=fex
   --gpu-mode=drm
+  "${MUVM_CPU_ARGS[@]}"
   "${MUVM_MEMORY_ARGS[@]}"
   "${MUVM_VRAM_ARGS[@]}"
   "${MUVM_NETWORK_ARGS[@]}"

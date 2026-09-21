@@ -121,6 +121,7 @@ The x86/FEX backend is the recommended default. Common optional settings are:
 ```nix
 programs.steam-asahi = {
   backend = "x86-fex"; # or the experimental "arm64" backend
+  cpuList = null;      # null lets muvm select performance cores
   memoryMiB = 6144;    # useful on an 8 GiB machine
   vramMiB = 4096;      # GPU heap size reported inside the guest
 };
@@ -133,6 +134,7 @@ with less RAM.
 | -------------------------------------------- | ------------------------------------------------------ |
 | `backend`                                    | Select `"x86-fex"` (default) or experimental `"arm64"` |
 | `customSteamHomeDir`                         | Set the isolated ARM64 home directory                  |
+| `cpuList`                                    | Select host CPUs and the guest vCPU count              |
 | `memoryMiB`                                  | Limit the microVM's memory in MiB                      |
 | `vramMiB`                                    | Set the GPU heap size reported inside the guest        |
 | `extraEnv`                                   | Add or replace guest environment variables             |
@@ -144,6 +146,14 @@ The firewall options both open the NixOS host firewall and publish the same
 ports from the `muvm` guest through passt. They are disabled by default. Values
 in `extraEnv` merge with the selected backend's defaults; set a defaulted
 variable to `null` to remove it.
+
+By default, muvm creates one guest vCPU per performance core and pins the whole
+VM to those cores. Guest CPU numbers start again at zero and do not identify
+host efficiency cores. To experiment with all cores, inspect host IDs with
+`lscpu -e=CPU,MAXMHZ` and set `cpuList`, for example `[ 0 1 2 3 4 5 6 7 ]` on
+a base M1 or M2. Extra efficiency cores can help heavily threaded workloads,
+but the guest is unaware of the asymmetric core types, so they can also hurt
+frame pacing. Benchmark the default and the all-core configuration per game.
 
 ## Backends
 

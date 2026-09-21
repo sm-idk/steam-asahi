@@ -41,12 +41,14 @@ require_declared_configuration_variables CUSTOM_STEAM_HOME_DIR
 # These values implement interfaces provided by the sourced common module.
 : "${ENV_BIN}" "${YAD}"
 
+readonly -a CPU_ARGS
 readonly -a MEMORY_ARGS
 readonly -a NETWORK_ARGS
 readonly -a VRAM_ARGS
 
 readonly -a MUVM_BASE_ARGS=(
   --gpu-mode=drm
+  "${CPU_ARGS[@]}"
   "${MEMORY_ARGS[@]}"
   "${VRAM_ARGS[@]}"
   "${NETWORK_ARGS[@]}"

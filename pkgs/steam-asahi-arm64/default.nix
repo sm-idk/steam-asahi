@@ -92,6 +92,7 @@
   vulkan-loader,
   zlib,
   zstd,
+  cpuList ? null,
   memoryMiB ? null,
   vramMiB ? null,
   publishPorts ? [ ],
@@ -100,6 +101,15 @@
   extraEnv ? (import ../environments.nix).arm64,
 }:
 
+assert lib.asserts.assertMsg (
+  cpuList == null
+  || (
+    builtins.isList cpuList
+    && cpuList != [ ]
+    && builtins.all (cpu: builtins.isInt cpu && cpu >= 0 && cpu <= 65535) cpuList
+    && builtins.length cpuList == builtins.length (lib.lists.unique cpuList)
+  )
+) "steam-asahi-arm64: cpuList must be null or a non-empty list of unique 16-bit CPU IDs";
 assert lib.asserts.assertMsg (
   memoryMiB == null || (builtins.isInt memoryMiB && memoryMiB > 0)
 ) "steam-asahi-arm64: memoryMiB must be null or a positive integer";
@@ -347,6 +357,9 @@ let
       COMPATIBILITY_TOOL_DIRECTORY = armProton.compatibilityToolDirectory;
       COMPATIBILITY_TOOL_VDF = "${compatibilityToolVdf}";
       COMMON_SCRIPT = commonScript;
+      CPU_ARGS = lib.lists.optionals (cpuList != null) [
+        "--cpu-list=${lib.strings.concatMapStringsSep "," toString cpuList}"
+      ];
       CUSTOM_STEAM_HOME_DIR = if customSteamHomeDir == null then "" else customSteamHomeDir;
       DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;

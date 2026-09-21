@@ -26,12 +26,22 @@
   glibc,
   steam-unwrapped,
   muvmHostMount ? "/run/muvm-host",
+  cpuList ? null,
   memoryMiB ? null,
   vramMiB ? null,
   publishPorts ? [ ],
   extraEnv ? (import ../environments.nix).x86-fex,
 }:
 
+assert lib.asserts.assertMsg (
+  cpuList == null
+  || (
+    builtins.isList cpuList
+    && cpuList != [ ]
+    && builtins.all (cpu: builtins.isInt cpu && cpu >= 0 && cpu <= 65535) cpuList
+    && builtins.length cpuList == builtins.length (lib.lists.unique cpuList)
+  )
+) "steam-asahi: cpuList must be null or a non-empty list of unique 16-bit CPU IDs";
 assert lib.asserts.assertMsg (
   memoryMiB == null || (builtins.isInt memoryMiB && memoryMiB > 0)
 ) "steam-asahi: memoryMiB must be null or a positive integer";
@@ -172,6 +182,9 @@ let
       FEX_STEAM_SCRIPT = fexSteamScript;
       INIT_SCRIPT = lib.meta.getExe initScript;
       MUVM = lib.meta.getExe muvm;
+      MUVM_CPU_ARGS = lib.lists.optionals (cpuList != null) [
+        "--cpu-list=${lib.strings.concatMapStringsSep "," toString cpuList}"
+      ];
       MUVM_HOST_MOUNT = muvmHostMount;
       MUVM_MEMORY_ARGS = lib.lists.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
       MUVM_NETWORK_ARGS = lib.lists.concatMap (specification: [

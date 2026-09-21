@@ -165,6 +165,7 @@ test_sourceability() {
     CLIENT_UPDATE_CHANNEL=publicbeta
     COMPATIBILITY_TOOL_DIRECTORY=compat
     COMPATIBILITY_TOOL_VDF=/tmp/vdf
+    CPU_ARGS=()
     CUSTOM_STEAM_HOME_DIR=
     DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home
     DISPLAY_NAME=Proton

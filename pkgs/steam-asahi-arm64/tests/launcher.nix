@@ -18,6 +18,12 @@ let
 
   package = steam-asahi-arm64.override {
     muvm = fakeMuvm;
+    cpuList = [
+      0
+      1
+      4
+      5
+    ];
     customSteamHomeDir = "isolated ARM home";
     memoryMiB = 4096;
     vramMiB = 2048;
@@ -135,6 +141,7 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   grep -Fx "$isolatedHome" "$TEST_MUVM_OUTPUT.home"
   grep -Fx "$isolatedHome/.local/share" "$TEST_MUVM_OUTPUT.data-home"
   grep -Fx -- '--gpu-mode=drm' "$TEST_MUVM_OUTPUT"
+  grep -Fx -- '--cpu-list=0,1,4,5' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '--mem=4096' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '--vram=2048' "$TEST_MUVM_OUTPUT"
   test "$(grep -Fxc -- '--publish' "$TEST_MUVM_OUTPUT")" = 2

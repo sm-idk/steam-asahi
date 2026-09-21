@@ -44,6 +44,12 @@ let
     fex = fakeFex;
     steam-unwrapped = fakeSteam;
     muvmHostMount = "/tmp/steam-asahi-muvm-host";
+    cpuList = [
+      0
+      1
+      4
+      5
+    ];
     memoryMiB = 4096;
     vramMiB = 2048;
     publishPorts = [
@@ -76,6 +82,7 @@ runCommand "steam-asahi-launcher-test" { } ''
   test -f "$data_directory/bootstrap-installed"
   test -f "$data_directory/steam-launcher/bin_steam.sh"
   grep -Fx -- '--gpu-mode=drm' "$HOME/steam-arguments"
+  grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/steam-arguments"
   grep -Fx -- '--mem=4096' "$HOME/steam-arguments"
   grep -Fx -- '--vram=2048' "$HOME/steam-arguments"
   test "$(grep -Fxc -- '--publish' "$HOME/steam-arguments")" = 2
@@ -117,6 +124,7 @@ runCommand "steam-asahi-launcher-test" { } ''
     | grep -F -- '-fex-diagnostic.sh'
   grep -Fx -- "$diagnostic_command" "$HOME/muvm-arguments"
   test "$(grep -Fxc -- '--publish' "$HOME/muvm-arguments")" = 2
+  grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/muvm-arguments"
   grep -Fx -- '--vram=2048' "$HOME/muvm-arguments"
 
   # The diagnostic interface accepts one explicit shell program. Requiring the

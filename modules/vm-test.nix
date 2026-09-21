@@ -11,6 +11,7 @@ let
 
   probePackage = nodePkgs.callPackage (
     {
+      cpuList ? null,
       extraEnv ? { },
       memoryMiB ? null,
       publishPorts ? [ ],
@@ -23,6 +24,7 @@ let
           lib.strings.escapeShellArg (
             builtins.toJSON {
               inherit
+                cpuList
                 extraEnv
                 memoryMiB
                 publishPorts
@@ -72,6 +74,10 @@ in
 
     programs.steam-asahi = {
       enable = true;
+      cpuList = [
+        0
+        2
+      ];
       extraEnv = {
         FEX_MULTIBLOCK = null;
         TEST_FROM_MODULE = "value with spaces";
@@ -107,6 +113,7 @@ in
 
     probe = json.loads(machine.succeed("steam-asahi-module-probe"))
     assert probe == {
+        "cpuList": [0, 2],
         "extraEnv": {
             "GTK_IM_MODULE": "xim",
             "PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS": "0",

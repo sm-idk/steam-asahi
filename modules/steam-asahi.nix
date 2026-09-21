@@ -151,7 +151,7 @@ in
         package.override (
           previous:
           {
-            inherit (cfg) memoryMiB vramMiB;
+            inherit (cfg) cpuList memoryMiB vramMiB;
             # Match nixpkgs' Steam module by preserving customization already
             # applied to the selected package. Module values win per variable,
             # and null continues to mean removal.
@@ -164,6 +164,7 @@ in
         );
       description = ''
         The Steam Asahi launcher package to use. The package is overridden with
+        {option}`programs.steam-asahi.cpuList`,
         {option}`programs.steam-asahi.memoryMiB`,
         {option}`programs.steam-asahi.vramMiB`, and
         {option}`programs.steam-asahi.extraEnv`, plus the guest ports selected
@@ -189,6 +190,33 @@ in
         HOME.
 
         This option is passed to custom packages only for the `arm64` backend.
+      '';
+    };
+
+    cpuList = mkOption {
+      type = with lib.types; nullOr (addCheck (nonEmptyListOf ints.u16) (value: unique value == value));
+      default = null;
+      example = [
+        0
+        1
+        2
+        3
+        4
+        5
+        6
+        7
+      ];
+      description = ''
+        Host logical CPU IDs on which muvm may run. Each ID also creates one
+        guest vCPU. When this is `null`, muvm uses its upstream default: the
+        host's performance cores only on a heterogeneous Apple SoC.
+
+        Including efficiency cores can improve highly parallel throughput, but
+        the guest cannot distinguish performance and efficiency vCPUs. It can
+        therefore reduce frame-time consistency or single-thread performance.
+        Compare per-game results before keeping a non-default list. Host and
+        guest CPU numbers are unrelated; inspect the host IDs with
+        {command}`lscpu -e=CPU,MAXMHZ`.
       '';
     };
 

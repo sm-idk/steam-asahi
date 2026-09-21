@@ -92,6 +92,7 @@ let
 
   probePackage = defaults.pkgs.callPackage (
     {
+      cpuList ? null,
       extraEnv ? { },
       memoryMiB ? null,
       publishPorts ? [ ],
@@ -100,6 +101,7 @@ let
     defaults.pkgs.runCommand "steam-asahi-module-probe" {
       passthru = {
         inherit
+          cpuList
           extraEnv
           memoryMiB
           publishPorts
@@ -110,6 +112,7 @@ let
   ) { };
 
   preconfiguredProbePackage = probePackage.override {
+    cpuList = [ 7 ];
     extraEnv = {
       FEX_MULTIBLOCK = "package-value-removed-by-module";
       PACKAGE_ENVIRONMENT = "preserved";
@@ -121,6 +124,12 @@ let
 
   customized = mkAarch64System {
     programs.steam-asahi = {
+      cpuList = [
+        0
+        1
+        4
+        5
+      ];
       extraEnv = {
         FEX_MULTIBLOCK = null;
         MANGOHUD = "1";
@@ -231,6 +240,8 @@ assert
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
     STEAM_RUNTIME = "1";
   };
+assert defaults.config.programs.steam-asahi.cpuList == null;
+assert arm64.config.programs.steam-asahi.cpuList == null;
 assert defaults.config.programs.steam-asahi.customSteamHomeDir == null;
 assert arm64.config.programs.steam-asahi.customSteamHomeDir == null;
 assert arm64.config.programs.steam-asahi.package.customSteamHomeDir == null;
@@ -254,6 +265,13 @@ assert
     STEAMOS = "1";
     STEAM_RUNTIME = "1";
   };
+assert
+  customized.config.programs.steam-asahi.package.cpuList == [
+    0
+    1
+    4
+    5
+  ];
 assert customized.config.programs.steam-asahi.package.memoryMiB == 6144;
 assert customized.config.programs.steam-asahi.package.publishPorts == [ ];
 assert customized.config.programs.steam-asahi.package.vramMiB == 3072;
