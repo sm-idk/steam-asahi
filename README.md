@@ -179,9 +179,12 @@ steam-asahi --import-login
 ```
 
 For Windows games, install **Proton 11.0 (ARM64)** and **Steam Linux Runtime
-4.0 - Arm64**. Force games with x86-only Linux builds to use Proton so Steam
-downloads their Windows build. Close Steam, then configure and launch the game
-with its numeric AppID:
+4.0 - Arm64**. The launcher then registers **Proton 11.0 (ARM64) [Steam
+Asahi]**, a compatibility-tool wrapper around those Valve-managed payloads.
+Choose the Steam Asahi entry rather than Valve's unwrapped Proton entry so the
+NixOS libraries and corrected compatibility paths are available. Force games
+with x86-only Linux builds to use the wrapper so Steam downloads their Windows
+build. Close Steam, then configure and launch the game with its numeric AppID:
 
 ```console
 steam-asahi --force-proton APPID

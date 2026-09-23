@@ -124,7 +124,8 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   test -L "$compatibilityDirectory/runtime"
   test -L "$compatibilityDirectory/host-libs"
   grep -F '"proton_11_arm64"' "$compatibilityDirectory/compatibilitytool.vdf"
-  grep -F '"display_name" "Proton 11.0 (ARM64)"' "$compatibilityDirectory/compatibilitytool.vdf"
+  grep -F '"display_name" "Proton 11.0 (ARM64) [Steam Asahi]"' \
+    "$compatibilityDirectory/compatibilitytool.vdf"
   grep -F '"commandline" "/steam-asahi-proton %verb%"' "$compatibilityDirectory/toolmanifest.vdf"
   grep -F '"require_tool_appid" "4185400"' "$compatibilityDirectory/toolmanifest.vdf"
   grep -F '"use_sessions" "1"' "$compatibilityDirectory/toolmanifest.vdf"

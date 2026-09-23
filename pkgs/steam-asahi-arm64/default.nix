@@ -298,7 +298,7 @@ let
 
   armProton = {
     compatibilityToolDirectory = "steam-asahi-proton-11-arm64";
-    displayName = "Proton 11.0 (ARM64)";
+    displayName = "Proton 11.0 (ARM64) [Steam Asahi]";
     protonDirectory = "Proton 11.0 (ARM64)";
     runtimeAppId = "4185400";
     runtimeDirectory = "SteamLinuxRuntime_4-arm64";
