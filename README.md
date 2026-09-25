@@ -193,6 +193,20 @@ steam-asahi --force-proton APPID
 The launcher creates a one-time `config.vdf.steam-asahi-backup` before changing
 the game's compatibility mapping.
 
+### Game shortcuts
+
+Shortcuts created from the client ("Add desktop shortcut" and "Add to Steam
+menu") become usable on the host a few seconds after the client writes them.
+The ARM64 backend keeps its entries below the isolated home, so they are
+mirrored into `$XDG_DATA_HOME/applications` as `steam-asahi-«name».desktop`
+together with their artwork.
+
+Entries the launcher manages carry `X-SteamAsahi-Managed=true`. It removes
+only entries carrying that marker, and never removes icons.
+
+Starting a shortcut while Steam Asahi is already running opens the game in
+the running client.
+
 ## Troubleshooting
 
 - **Waiting for network on a fresh login:** this is a current Steam client
@@ -206,6 +220,11 @@ the game's compatibility mapping.
   warnings, then check whether the game needs to be forced to Proton. The
   compatibility tool writes details to `steam-asahi-proton.log` in its
   directory below `Steam/compatibilitytools.d`.
+- **A game shortcut is missing from the application menu:** shortcuts are
+  repaired while the client runs, so give it a few seconds. On ARM64, confirm
+  the client's own entry exists in
+  `~/.local/share/steam-asahi-arm64-home/Desktop`. Some launchers only rescan
+  `~/.local/share/applications` after a restart.
 - **Inspect the guest:** run `steam-asahi --fex 'uname -m'` or
   `steam-asahi --fex 'vulkaninfo --summary'`.
 
