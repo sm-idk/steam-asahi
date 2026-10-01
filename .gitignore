@@ -4,3 +4,9 @@ result-*
 
 # Ignore automatically generated direnv output
 .direnv
+
+# Ignore local Python environments and tool caches
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/

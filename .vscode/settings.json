@@ -1,0 +1,25 @@
+{
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit"
+    }
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+  "python.useEnvironmentsExtension": true,
+  "python.languageServer": "None",
+  "ruff.configuration": "${workspaceFolder}/pyproject.toml",
+  "ruff.configurationPreference": "filesystemFirst",
+  "ruff.importStrategy": "fromEnvironment",
+  "ruff.path": ["${workspaceFolder}/.venv/bin/ruff"],
+  "ty.importStrategy": "fromEnvironment",
+  "ty.configuration": {
+    "environment": {
+      "extra-paths": ["pkgs/scripts/launcher"],
+      "python-platform": "linux"
+    }
+  },
+  "ty.path": ["${workspaceFolder}/.venv/bin/ty"],
+  "ty.interpreter": "${workspaceFolder}/.venv"
+}

@@ -81,11 +81,7 @@
               python = {
                 command = lib.meta.getExe formatterPkgs.ruff;
                 includes = [ "*.py" ];
-                options = [
-                  "format"
-                  "--line-length=80"
-                  "--target-version=py314"
-                ];
+                options = [ "format" ];
               };
               shell = {
                 command = lib.meta.getExe formatterPkgs.shfmt;
@@ -232,6 +228,8 @@
         in
         pkgs.mkShellNoCC {
           packages = [
+            pkgs.uv
+            pkgs.python314
             pkgs.muvm
             pkgs.fex
             pkgs.shellcheck

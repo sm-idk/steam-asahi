@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "tasks": [
+    {
+      "label": "Python: sync environment",
+      "type": "process",
+      "command": "uv",
+      "args": ["sync", "--locked"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: lint",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "--locked", "ruff", "check", "."],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: format",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "--locked", "ruff", "format", "."],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: check formatting",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "--locked", "ruff", "format", "--check", "."],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: typecheck",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "--locked",
+        "ty",
+        "check",
+        "--extra-search-path",
+        "pkgs/scripts/launcher"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: check",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Python: lint",
+        "Python: check formatting",
+        "Python: typecheck"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

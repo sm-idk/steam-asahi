@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-python-envs",
+    "charliermarsh.ruff",
+    "astral-sh.ty",
+    "tamasfe.even-better-toml"
+  ]
+}
