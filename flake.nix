@@ -52,12 +52,14 @@
       mkFormatter =
         formatterPkgs:
         formatterPkgs.treefmt.withConfig {
-          runtimeInputs = [
-            formatterPkgs.nixf-diagnose
-            formatterPkgs.nixfmt
-            formatterPkgs.ruff
-            formatterPkgs.shfmt
-          ];
+          runtimeInputs = builtins.attrValues {
+            inherit (formatterPkgs)
+              nixf-diagnose
+              nixfmt
+              ruff
+              shfmt
+              ;
+          };
           settings = {
             on-unmatched = "debug";
             tree-root-file = "flake.nix";
@@ -112,12 +114,14 @@
         testPkgs:
         testPkgs.runCommand "steam-asahi-shell-scripts-test"
           {
-            nativeBuildInputs = [
-              testPkgs.bash
-              testPkgs.coreutils
-              testPkgs.python314
-              testPkgs.util-linux
-            ];
+            nativeBuildInputs = builtins.attrValues {
+              inherit (testPkgs)
+                bash
+                coreutils
+                python314
+                util-linux
+                ;
+            };
           }
           ''
             diagnostic_output=$(BASH_ENV= PATH= \
@@ -227,17 +231,17 @@
           };
         in
         pkgs.mkShellNoCC {
-          packages = [
-            pkgs.uv
-            pkgs.python314
-            pkgs.muvm
-            pkgs.fex
-            pkgs.shellcheck
-            pkgs.steam-asahi
-            x86Command
-            arm64Command
-            arm64TestCommand
-          ];
+          packages = builtins.attrValues {
+            inherit (pkgs)
+              uv
+              python314
+              muvm
+              fex
+              shellcheck
+              steam-asahi
+              ;
+            inherit x86Command arm64Command arm64TestCommand;
+          };
 
           shellHook = ''
             echo "steam-asahi dev shell"

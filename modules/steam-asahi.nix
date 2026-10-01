@@ -314,12 +314,12 @@ in
           `users.users.<name>.extraGroups = [ "kvm" ];`.
         '';
 
-      environment.systemPackages = [
-        cfg.package
+      environment.systemPackages = builtins.attrValues {
+        inherit (cfg) package;
         # Useful for direct guest diagnostics documented in the README. The
         # launcher's other dependencies are already referenced by its closure
-        pkgs.muvm
-      ];
+        inherit (pkgs) muvm;
+      };
 
       # Host Mesa/virglrenderer provides Asahi DRM native-context rendering;
       # steam-hardware supplies the standard controller and input udev rules
