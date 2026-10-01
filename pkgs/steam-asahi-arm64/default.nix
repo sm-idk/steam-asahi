@@ -127,6 +127,10 @@ assert lib.asserts.assertMsg (
 ) "steam-asahi-arm64: customSteamHomeDir must be null or a non-empty string";
 
 let
+  # Exported game shortcuts run this command, so the launcher's own name has to
+  # stay in step with the executable and its desktop entry.
+  launcherName = "steam-asahi";
+
   commonScriptSource = ../scripts/common.sh;
   commonScript = writeText "steam-asahi-common.sh" (builtins.readFile commonScriptSource);
 
@@ -345,7 +349,7 @@ let
 
   launcher = writeShellApplication {
     inheritPath = false;
-    name = "steam-asahi";
+    name = launcherName;
     runtimeInputs = [
       coreutils
       util-linux
@@ -368,6 +372,7 @@ let
       GUEST_LAUNCHER = lib.meta.getExe guestLauncher;
       HOST_LIBRARIES = "${nativeRuntime}/lib";
       INIT_SCRIPT = lib.meta.getExe initScript;
+      LAUNCHER_COMMAND = launcherName;
       MEMORY_ARGS = lib.lists.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
       MUVM = lib.meta.getExe muvm;
       NETWORK_ARGS = lib.lists.concatMap (specification: [
@@ -393,15 +398,15 @@ let
       # over and launches Valve's unfree redistributable Steam client.
       license = lib.licenses.unfree;
       platforms = [ "aarch64-linux" ];
-      mainProgram = "steam-asahi";
+      mainProgram = launcherName;
     };
   };
 
   desktopItem = makeDesktopItem {
-    name = "steam-asahi";
+    name = launcherName;
     desktopName = "Steam (Asahi, ARM64 beta)";
     comment = "Native ARM64 Steam public beta in a 4K-page microVM";
-    exec = "steam-asahi %U";
+    exec = "${launcherName} %U";
     icon = "steam";
     startupNotify = true;
     categories = [

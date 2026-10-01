@@ -23,9 +23,14 @@ declare_readonly_array_default() {
 
 readonly C_LOCALE=C.UTF-8
 readonly ARM64_CLIENT_DIRECTORY_NAME=steamrtarm64
+# The command the Steam client bakes into the shortcuts it generates. It
+# resolves only inside the microVM, so both launchers replace it with their own
+# and record the change with the marker below.
+readonly CLIENT_COMMAND_NAME=steam
 readonly ETC_STUB_FILE_MODE=0644
 readonly FHS_ROOT=/run/fhs
 readonly LOCALE_ARCHIVE_PATH=/run/current-system/sw/lib/locale/locale-archive
+readonly MANAGED_ENTRY_MARKER=X-SteamAsahi-Managed=true
 readonly OPENGL_DRIVER_ROOT=/run/opengl-driver
 readonly OPENGL_VULKAN_SHARE="${OPENGL_DRIVER_ROOT}/share/vulkan"
 readonly PCI_DEVICES_DIRECTORY=/sys/bus/pci/devices
@@ -312,13 +317,21 @@ install_managed_file() {
   fi
 }
 
+# `mktemp` creates the temporary file at 0600, so a caller that needs a
+# particular mode has to say so; the chmod lands before the rename, keeping the
+# published file's mode atomic with its content.
 write_managed_value() {
   local destination=$1
+  local mode=${3-}
   local temporary_path
   local value=$2
 
   create_managed_temporary_path temporary_path "${destination}"
   if ! printf '%s\n' "${value}" >"${temporary_path}"; then
+    rm -f -- "${temporary_path}"
+    return 1
+  fi
+  if [[ -n "${mode}" ]] && ! chmod "${mode}" -- "${temporary_path}"; then
     rm -f -- "${temporary_path}"
     return 1
   fi
@@ -332,6 +345,54 @@ write_managed_value() {
     rm -f -- "${temporary_path}"
     return 1
   fi
+}
+
+# True while the entry still launches a game through the client's own command.
+desktop_entry_runs_client() {
+  local line
+  local path=$1
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" != "Exec=${CLIENT_COMMAND_NAME} steam://"* ]] || return 0
+  done <"${path}"
+  return 1
+}
+
+# The marker is what distinguishes an entry a launcher wrote from one that
+# merely shares its naming.
+desktop_entry_is_managed() {
+  local line
+  local path=$1
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" != "${MANAGED_ENTRY_MARKER}" ]] || return 0
+  done <"${path}"
+  return 1
+}
+
+# Writes the entry with the client's command replaced by the host launcher's
+# and exactly one marker. The destination may be the source, because the whole
+# entry is read before the atomic rename replaces it.
+install_managed_desktop_entry() {
+  local content=
+  local destination=$2
+  local launcher_command=$3
+  local line
+  local mode
+  local source_path=$1
+
+  # Read the mode first: the in-place repair passes one path as both source
+  # and destination.
+  mode=${ stat -c %a -- "${source_path}"; }
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ "${line}" != "${MANAGED_ENTRY_MARKER}" ]] || continue
+    if [[ "${line}" == "Exec=${CLIENT_COMMAND_NAME} "* ]]; then
+      line="Exec=${launcher_command}${line#"Exec=${CLIENT_COMMAND_NAME}"}"
+    fi
+    content+="${line}"$'\n'
+  done <"${source_path}"
+  write_managed_value \
+    "${destination}" "${content}${MANAGED_ENTRY_MARKER}" "${mode}"
 }
 
 materialize_etc_symlink() {

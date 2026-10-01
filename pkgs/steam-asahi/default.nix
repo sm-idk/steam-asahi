@@ -56,6 +56,10 @@ assert lib.asserts.assertMsg (
 ) "steam-asahi: publishPorts must be a list of muvm port specifications";
 
 let
+  # Repaired game shortcuts run this command, so the launcher's own name has to
+  # stay in step with the executable and its desktop entry.
+  launcherName = "steam-asahi";
+
   commonScriptSource = ../scripts/common.sh;
   commonScript = writeText "steam-asahi-common.sh" (builtins.readFile commonScriptSource);
 
@@ -160,7 +164,7 @@ let
 
   launcher = writeShellApplication {
     inheritPath = false;
-    name = "steam-asahi";
+    name = launcherName;
     runtimeInputs = [
       coreutils
       gnugrep
@@ -181,6 +185,7 @@ let
       FEX_ROOTFS_FETCHER = lib.meta.getExe' fex "FEXRootFSFetcher";
       FEX_STEAM_SCRIPT = fexSteamScript;
       INIT_SCRIPT = lib.meta.getExe initScript;
+      LAUNCHER_COMMAND = launcherName;
       MUVM = lib.meta.getExe muvm;
       MUVM_CPU_ARGS = lib.lists.optionals (cpuList != null) [
         "--cpu-list=${lib.strings.concatMapStringsSep "," toString cpuList}"
@@ -210,15 +215,15 @@ let
       # over and launches Valve's unfree redistributable Steam client.
       license = lib.licenses.unfree;
       platforms = [ "aarch64-linux" ];
-      mainProgram = "steam-asahi";
+      mainProgram = launcherName;
     };
   };
 
   desktopItem = makeDesktopItem {
-    name = "steam-asahi";
+    name = launcherName;
     desktopName = "Steam (Asahi)";
     comment = "Steam on Apple Silicon via muvm + FEX-Emu";
-    exec = "steam-asahi %U";
+    exec = "${launcherName} %U";
     icon = "steam";
     startupNotify = true;
     categories = [

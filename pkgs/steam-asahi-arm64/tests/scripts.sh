@@ -22,6 +22,7 @@ TEST_SH=$(command -v sh)
 readonly TEST_SH
 readonly FORCE_PROTON_APP_ID=250900
 readonly TEST_APP_ID=12345
+readonly TEST_SHORTCUT_APP_ID=999999
 readonly TEST_GUEST_COMMAND_EXIT_STATUS=23
 readonly TEST_PROTON_RUNNER_EXIT_STATUS=29
 readonly TEST_PROTON_RUNTIME_EXIT_STATUS=31
@@ -75,6 +76,18 @@ assert_file_lines() {
       "${description} item ${index}"
     index=$(( index + 1 ))
   done
+}
+
+write_desktop_entry() {
+  local exec_line=$2
+  local path=$1
+
+  cat >"${path}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=${path##*/}
+Exec=${exec_line}
+EOF
 }
 
 run_expect_status() {
@@ -174,6 +187,7 @@ test_sourceability() {
     GUEST_LAUNCHER=/bin/true
     HOST_LIBRARIES=/tmp
     INIT_SCRIPT=/bin/true
+    LAUNCHER_COMMAND=steam-asahi
     MEMORY_ARGS=()
     MUVM=/bin/true
     NETWORK_ARGS=()
@@ -423,8 +437,16 @@ test_launcher() {
   local launcher_root="${TEST_ROOT}/launcher"
   local home="${launcher_root}/home with spaces"
   local output="${launcher_root}/muvm-arguments"
+  local runtime_directory="${launcher_root}/runtime"
+  local source_applications="${home}/data/applications"
+  local exported_desktop_entry=\
+"${source_applications}/steam-asahi-Desktop Game.desktop"
+  local exported_menu_entry=\
+"${source_applications}/steam-asahi-Menu Game.desktop"
+  local source_icons="${home}/data/icons/hicolor/64x64/apps"
   local steam_home="${home}/data/steam-asahi-arm64-home"
   local steam_directory="${steam_home}/.local/share/Steam"
+  local steam_icons="${steam_home}/.local/share/icons/hicolor/64x64/apps"
   local compatibility_directory=\
 "${steam_directory}/compatibilitytools.d/test-proton"
   local -ar executable_files=(
@@ -447,8 +469,38 @@ test_launcher() {
   mkdir -p -- \
     "${launcher_root}/bootstrap" \
     "${launcher_root}/host-libs" \
+    "${runtime_directory}" \
+    "${source_applications}" \
+    "${source_icons}" \
+    "${steam_home}/Desktop" \
+    "${steam_home}/.local/share/applications" \
+    "${steam_icons}" \
     "${steam_directory}/steamapps/common/Test Proton" \
     "${steam_directory}/steamapps/common/Test Runtime"
+  write_desktop_entry "${steam_home}/Desktop/Desktop Game.desktop" \
+    "steam steam://rungameid/${TEST_SHORTCUT_APP_ID}"
+  chmod 0755 -- "${steam_home}/Desktop/Desktop Game.desktop"
+  write_desktop_entry \
+    "${steam_home}/.local/share/applications/Menu Game.desktop" \
+    'steam steam://rungameid/6789'
+  chmod 0644 -- "${steam_home}/.local/share/applications/Menu Game.desktop"
+  # An export written with the wrong mode is always newer than the client's
+  # own entry, so only mode drift can bring it back.
+  write_desktop_entry "${exported_desktop_entry}" \
+    "steam-asahi steam://rungameid/${TEST_SHORTCUT_APP_ID}"
+  printf '%s\n' X-SteamAsahi-Managed=true >>"${exported_desktop_entry}"
+  chmod 0600 -- "${exported_desktop_entry}"
+  touch -- "${exported_desktop_entry}"
+  write_desktop_entry "${source_applications}/unmanaged.desktop" /bin/true
+  write_desktop_entry \
+    "${source_applications}/steam-asahi-Removed Game.desktop" \
+    'steam-asahi steam://rungameid/1111'
+  printf '%s\n' X-SteamAsahi-Managed=true \
+    >>"${source_applications}/steam-asahi-Removed Game.desktop"
+  write_desktop_entry \
+    "${source_applications}/steam-asahi-Unowned.desktop" /bin/true
+  printf '%s\n' icon >"${steam_icons}/steam_icon_${TEST_SHORTCUT_APP_ID}.png"
+  printf '%s\n' stale-icon >"${source_icons}/steam_icon_2222.png"
   touch -- "${executable_files[@]}" "${metadata_files[@]}"
   chmod +x -- "${executable_files[@]}"
   printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/configurator"
@@ -483,6 +535,7 @@ EOF
       HOME="${home}" \
       HOST_LIBRARIES="${launcher_root}/host-libs" \
       INIT_SCRIPT=/init-script \
+      LAUNCHER_COMMAND=steam-asahi \
       MUVM="${launcher_root}/muvm" \
       PROTON_DIRECTORY='Test Proton' \
       PROTON_CONFIGURATOR="${launcher_root}/configurator" \
@@ -497,6 +550,7 @@ EOF
       TEST_MUVM_OUTPUT="${output}" \
       TOOL_MANIFEST="${launcher_root}/toolmanifest.vdf" \
       XDG_DATA_HOME="${home}/data" \
+      XDG_RUNTIME_DIR="${runtime_directory}" \
       YAD=/bin/false \
       bash "${PACKAGE_ROOT}/scripts/launcher.sh" "$@"
   }
@@ -525,6 +579,31 @@ EOF
     "${configurator_output}" "${FORCE_PROTON_APP_ID}"
   assert_file_contains_line "${configurator_output}" proton_test
 
+  assert_file_contains_line \
+    "${source_applications}/steam-asahi-Desktop Game.desktop" \
+    "Exec=steam-asahi steam://rungameid/${TEST_SHORTCUT_APP_ID}"
+  assert_file_contains_line \
+    "${source_applications}/steam-asahi-Desktop Game.desktop" \
+    X-SteamAsahi-Managed=true
+  assert_file_contains_line \
+    "${source_applications}/steam-asahi-Menu Game.desktop" \
+    'Exec=steam-asahi steam://rungameid/6789'
+  assert_equal 755 "${ stat -c %a -- "${exported_desktop_entry}"; }" \
+    'a stale export is repaired to the mode of the client entry'
+  assert_equal 644 "${ stat -c %a -- "${exported_menu_entry}"; }" \
+    'an export follows a non-executable client entry'
+  [[ -f "${source_applications}/unmanaged.desktop" ]] \
+    || fail 'the export removed an entry it does not own'
+  [[ ! -e "${source_applications}/steam-asahi-Removed Game.desktop" ]] \
+    || fail 'a stale exported entry survived the export'
+  [[ -f "${source_applications}/steam-asahi-Unowned.desktop" ]] \
+    || fail 'the export removed an unmarked entry sharing its prefix'
+  assert_equal icon \
+    "$(<"${source_icons}/steam_icon_${TEST_SHORTCUT_APP_ID}.png")" \
+    'exported shortcut icon'
+  assert_equal stale-icon "$(<"${source_icons}/steam_icon_2222.png")" \
+    'artwork the export does not own'
+
   local hold_file="${launcher_root}/hold-muvm"
   local running_pid
   touch -- "${hold_file}"
@@ -546,6 +625,41 @@ EOF
     'ERROR: Close Steam before changing a compatibility-tool mapping' \
     "${launcher_root}/lock-error" >/dev/null \
     || fail 'the lock conflict did not explain how to proceed'
+
+  local muvm_lock_pid
+  local muvm_lock_ready="${launcher_root}/muvm-lock-ready"
+  local muvm_lock_release="${launcher_root}/muvm-lock-release"
+  touch -- "${muvm_lock_release}"
+  (
+    exec {lock_descriptor}>"${runtime_directory}/muvm.lock"
+    flock --exclusive "${lock_descriptor}"
+    touch -- "${muvm_lock_ready}"
+    while [[ -e "${muvm_lock_release}" ]]; do
+      sleep 0.05
+    done
+  ) &
+  muvm_lock_pid=$!
+  while [[ ! -e "${muvm_lock_ready}" ]]; do
+    kill -0 "${muvm_lock_pid}" 2>/dev/null \
+      || fail 'the muvm runtime lock holder exited early'
+    sleep 0.05
+  done
+  run_test_launcher "steam://rungameid/${TEST_SHORTCUT_APP_ID}" \
+    >"${launcher_root}/forward-output" 2>&1 \
+    || fail 'the launcher refused to forward a shortcut URL'
+  rm -f -- "${muvm_lock_release}"
+  wait "${muvm_lock_pid}"
+  assert_file_contains_line \
+    "${output}" "${steam_directory}/steamrtarm64/steam"
+  assert_file_contains_line \
+    "${output}" "steam://rungameid/${TEST_SHORTCUT_APP_ID}"
+  if grep -Fqx -- '--steam' "${output}"; then
+    fail 'a forwarded URL restarted the client instead of reaching it'
+  fi
+  if grep -Fqx -- '--interactive' "${output}"; then
+    fail 'a forwarded URL asked muvm to proxy stdio it cannot have'
+  fi
+
   rm -f -- "${hold_file}"
   wait "${running_pid}"
 
