@@ -38,87 +38,66 @@ let
     config.services.pulseaudio.enable
     || (config.services.pipewire.enable && config.services.pipewire.pulse.enable);
 
-  mkPort = enabled: protocol: port: {
-    inherit enabled port protocol;
-  };
+  mkPort = protocol: port: { inherit protocol port; };
+  mkPortRange = protocol: from: to: { inherit protocol from to; };
 
-  mkPortRange = enabled: protocol: from: to: {
-    inherit
-      enabled
-      from
-      protocol
-      to
-      ;
-  };
-
-  # Keep one canonical description of each Steam port. The NixOS firewall and
-  # muvm/passt publication arguments below are derived from this same list.
-  steamPorts = [
-    # Peer discovery for Remote Play and local network transfers.
-    (mkPort (cfg.remotePlay.openFirewall || cfg.localNetworkGameTransfers.openFirewall) "udp" 27036)
-    (mkPort cfg.remotePlay.openFirewall "tcp" 27036)
-    (mkPort cfg.remotePlay.openFirewall "tcp" 27037)
-    (mkPort cfg.remotePlay.openFirewall "udp" 10400)
-    (mkPort cfg.remotePlay.openFirewall "udp" 10401)
-    (mkPortRange cfg.remotePlay.openFirewall "udp" 27031 27035)
-    # Source Dedicated Server Rcon and gameplay traffic.
-    (mkPort cfg.dedicatedServer.openFirewall "tcp" 27015)
-    (mkPort cfg.dedicatedServer.openFirewall "udp" 27015)
-    # Local network game data transfers.
-    (mkPort cfg.localNetworkGameTransfers.openFirewall "tcp" 27040)
-  ];
-
-  enabledSteamPorts = filter (specification: specification.enabled) steamPorts;
+  # Derive host firewall rules and muvm/passt publications from the same ports
+  steamPorts =
+    optionals (cfg.remotePlay.openFirewall || cfg.localNetworkGameTransfers.openFirewall) [
+      (mkPort "udp" 27036) # Peer discovery
+    ]
+    ++ optionals cfg.remotePlay.openFirewall [
+      (mkPort "tcp" 27036)
+      (mkPort "tcp" 27037)
+      (mkPort "udp" 10400)
+      (mkPort "udp" 10401)
+      (mkPortRange "udp" 27031 27035)
+    ]
+    ++ optionals cfg.dedicatedServer.openFirewall [
+      (mkPort "tcp" 27015) # SRCDS Rcon
+      (mkPort "udp" 27015) # Gameplay
+    ]
+    ++ optionals cfg.localNetworkGameTransfers.openFirewall [
+      (mkPort "tcp" 27040) # Data transfers
+    ];
 
   singlePortsFor =
     protocol:
     map (specification: specification.port) (
-      filter (specification: specification.protocol == protocol && specification ? port) enabledSteamPorts
+      filter (specification: specification.protocol == protocol && specification ? port) steamPorts
     );
 
   portRangesFor =
     protocol:
-    map
-      (specification: {
-        inherit (specification) from to;
-      })
-      (
-        filter (specification: specification.protocol == protocol && specification ? from) enabledSteamPorts
-      );
+    map (specification: {
+      inherit (specification) from to;
+    }) (filter (specification: specification.protocol == protocol && specification ? from) steamPorts);
 
   # muvm uses passt for guest networking, so opening the host firewall alone is
-  # insufficient. Publish the selected ports from the guest to the host too.
-  publishPorts = unique (
-    map (
-      specification:
-      let
-        endpoint =
-          if specification ? port then
-            toString specification.port
-          else
-            "${toString specification.from}-${toString specification.to}";
-      in
-      "${endpoint}/${specification.protocol}"
-    ) enabledSteamPorts
-  );
+  # insufficient. Publish the selected ports from the guest to the host too
+  publishPorts = map (
+    specification:
+    let
+      endpoint =
+        if specification ? port then
+          toString specification.port
+        else
+          "${toString specification.from}-${toString specification.to}";
+    in
+    "${endpoint}/${specification.protocol}"
+  ) steamPorts;
 
-  # muvm marks proxied PipeWire portal clients with a private access property.
+  # muvm marks proxied PipeWire portal clients with a private access property
   # Its matching WirePlumber policy lives in the source tree but is not
   # installed by nixpkgs' muvm package, so expose that exact-version policy as
-  # a normal NixOS WirePlumber config package.
+  # a normal NixOS WirePlumber config package
   muvmWirePlumberConfig = pkgs.runCommand "muvm-wireplumber-config-${pkgs.muvm.version}" { } ''
     mkdir -p "$out/share/wireplumber"
     cp -R ${pkgs.muvm.src}/share/wireplumber/. "$out/share/wireplumber/"
   '';
 in
 {
-  # Keep the module self-describing when it is passed around as an evaluated
-  # value instead of imported by path.  The class prevents accidental use in
-  # another module-system application, while the file/key retain useful
-  # diagnostics and path-compatible deduplication semantics.
   _class = "nixos";
-  _file = ./steam-asahi.nix;
-  key = toString ./steam-asahi.nix;
 
   options.programs.steam-asahi = {
     enable = mkEnableOption "Steam on Apple Silicon in a 4K-page microVM";
@@ -154,7 +133,7 @@ in
             inherit (cfg) cpuList memoryMiB vramMiB;
             # Match nixpkgs' Steam module by preserving customization already
             # applied to the selected package. Module values win per variable,
-            # and null continues to mean removal.
+            # and null continues to mean removal
             extraEnv = filterAttrs (_: value: value != null) ((previous.extraEnv or { }) // cfg.extraEnv);
             inherit publishPorts;
           }
@@ -257,9 +236,9 @@ in
         Environment variables exported inside the selected Steam backend.
         Backend defaults are merged per variable, so additional variables do
         not discard them. Set a variable to `null` to remove its backend
-        default. Both backends set `GTK_IM_MODULE=xim`, `STEAM_RUNTIME=1`, and
+        default. Both backends set `GTK_IM_MODULE=xim` and
         `PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS=0`. The `x86-fex` backend also
-        sets `FEX_MULTIBLOCK=0` and `STEAMOS=1`.
+        sets `FEX_MULTIBLOCK=0`, `STEAMOS=1`, and `STEAM_RUNTIME=1`.
       '';
     };
 
@@ -295,7 +274,7 @@ in
     {
       # Put defaults in the module configuration rather than the option
       # declaration. Keeping the priority on each value lets users add or
-      # override one variable without replacing every backend default.
+      # override one variable without replacing every backend default
       programs.steam-asahi.extraEnv = mapAttrs (_: mkDefault) backendEnvironments.${cfg.backend};
     }
 
@@ -338,12 +317,12 @@ in
       environment.systemPackages = [
         cfg.package
         # Useful for direct guest diagnostics documented in the README. The
-        # launcher's other dependencies are already referenced by its closure.
+        # launcher's other dependencies are already referenced by its closure
         pkgs.muvm
       ];
 
       # Host Mesa/virglrenderer provides Asahi DRM native-context rendering;
-      # steam-hardware supplies the standard controller and input udev rules.
+      # steam-hardware supplies the standard controller and input udev rules
       hardware.graphics.enable = true;
       hardware.steam-hardware.enable = true;
 
@@ -352,7 +331,7 @@ in
           [ muvmWirePlumberConfig ];
 
       # These match nixpkgs' regular Steam module. The launcher additionally
-      # forwards each enabled port through muvm/passt.
+      # forwards each enabled port through muvm/passt
       networking.firewall = {
         allowedTCPPorts = singlePortsFor "tcp";
         allowedUDPPorts = singlePortsFor "udp";

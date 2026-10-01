@@ -17,7 +17,6 @@
 
   arm64 = {
     GTK_IM_MODULE = "xim";
-    STEAM_RUNTIME = "1";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
   };
 }

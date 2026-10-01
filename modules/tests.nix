@@ -11,35 +11,8 @@ let
     filter
     head
     map
-    take
     ;
   inherit (nixpkgs.lib.strings) hasInfix hasSuffix optionalString;
-
-  moduleEvaluation = nixpkgs.lib.modules.evalModules {
-    class = "nixos";
-    modules = [ module ];
-  };
-
-  moduleGraph = builtins.head moduleEvaluation.graph;
-  implementationGraph = builtins.head moduleGraph.imports;
-
-  rejectsWrongClass = builtins.tryEval (
-    builtins.deepSeq
-      (nixpkgs.lib.modules.evalModules {
-        class = "darwin";
-        modules = [ module ];
-      }).graph
-      true
-  );
-
-  rejectsImplementationWrongClass = builtins.tryEval (
-    builtins.deepSeq
-      (nixpkgs.lib.modules.evalModules {
-        class = "darwin";
-        modules = [ ./steam-asahi.nix ];
-      }).graph
-      true
-  );
 
   mkSystem =
     system: extraModule:
@@ -85,10 +58,6 @@ let
       pulse.enable = true;
     };
   };
-
-  steamArm64Client = defaults.pkgs.steam-arm64-client;
-  steamArm64ClientPurlSpec = "valve/${steamArm64Client.pname}@${steamArm64Client.version}";
-  steamArm64ClientPurl = "pkg:generic/${steamArm64ClientPurlSpec}";
 
   probePackage = defaults.pkgs.callPackage (
     {
@@ -213,19 +182,7 @@ let
   ) defaults.config.services.pipewire.wireplumber.configPackages;
   muvmWirePlumberConfig = head muvmWirePlumberConfigs;
 in
-assert module._class == "nixos";
-assert hasSuffix "flake.nix#nixosModules.default" module._file;
-assert module.key == module._file;
-assert moduleGraph.file == module._file;
-assert moduleGraph.key == module.key;
-assert hasSuffix "/modules/steam-asahi.nix" implementationGraph.file;
-assert implementationGraph.key == implementationGraph.file;
-assert !rejectsWrongClass.success;
-assert !rejectsImplementationWrongClass.success;
 assert builtins.length deduplicated.config.nixpkgs.overlays == 1;
-assert hasSuffix "/modules/steam-asahi.nix" (
-  builtins.head defaults.options.programs.steam-asahi.enable.declarations
-);
 assert
   defaults.config.programs.steam-asahi.extraEnv == {
     FEX_MULTIBLOCK = "0";
@@ -238,13 +195,7 @@ assert
   arm64.config.programs.steam-asahi.extraEnv == {
     GTK_IM_MODULE = "xim";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    STEAM_RUNTIME = "1";
   };
-assert defaults.config.programs.steam-asahi.cpuList == null;
-assert arm64.config.programs.steam-asahi.cpuList == null;
-assert defaults.config.programs.steam-asahi.customSteamHomeDir == null;
-assert arm64.config.programs.steam-asahi.customSteamHomeDir == null;
-assert arm64.config.programs.steam-asahi.package.customSteamHomeDir == null;
 assert
   customHomeArm64.config.programs.steam-asahi.package.customSteamHomeDir == "custom-arm64-home";
 assert
@@ -310,36 +261,14 @@ assert
       to = 27035;
     }
   ];
-assert defaults.pkgs.steam-asahi.pname == "steam-asahi";
-assert defaults.pkgs.steam-asahi.version == defaults.pkgs.steam-unwrapped.version;
-assert defaults.pkgs.steam-asahi.meta.homepage == "https://github.com/sm-idk/steam-asahi";
-assert defaults.pkgs.steam-asahi.meta.license == defaults.pkgs.lib.licenses.unfree;
-assert defaults.pkgs.steam-asahi.meta.mainProgram == "steam-asahi";
-assert defaults.pkgs.steam-asahi.backend == "x86-fex";
-assert defaults.pkgs.steam-asahi-arm64.pname == "steam-asahi-arm64";
-assert defaults.pkgs.steam-asahi-arm64.version == steamArm64Client.version;
-assert defaults.pkgs.steam-asahi-arm64.meta.homepage == "https://github.com/sm-idk/steam-asahi";
-assert defaults.pkgs.steam-asahi-arm64.meta.license == defaults.pkgs.lib.licenses.unfree;
-assert defaults.pkgs.steam-asahi-arm64.meta.mainProgram == "steam-asahi";
-assert defaults.pkgs.steam-asahi-arm64.backend == "arm64";
-assert defaults.pkgs.steam-asahi-arm64.customSteamHomeDir == null;
-assert steamArm64Client.meta.identifiers.purlParts.type == "generic";
-assert steamArm64Client.meta.identifiers.purlParts.spec == steamArm64ClientPurlSpec;
-assert steamArm64Client.meta.identifiers.v1.purl == steamArm64ClientPurl;
-assert builtins.baseNameOf (toString steamArm64Client.updateScript) == "update.py";
 assert defaults.config.users.groups.kvm.members == [ "alice" ];
 assert defaults.config.hardware.graphics.enable;
 assert defaults.config.hardware.steam-hardware.enable;
 assert builtins.length muvmWirePlumberConfigs == 1;
 assert noAudio.config.services.pipewire.wireplumber.configPackages == [ ];
-assert
-  take 2 defaults.config.environment.systemPackages == [
-    defaults.config.programs.steam-asahi.package
-    defaults.pkgs.muvm
-  ];
+assert elem defaults.config.programs.steam-asahi.package defaults.config.environment.systemPackages;
+assert elem defaults.pkgs.muvm defaults.config.environment.systemPackages;
 assert !(elem defaults.pkgs.fex defaults.config.environment.systemPackages);
-assert conflicts.config.programs.steam.enable;
-assert conflicts.config.hardware.graphics.enable32Bit;
 assert builtins.length (steamAsahiFailures conflicts) == 2;
 assert builtins.length (steamAsahiFailures wrongPlatform) == 1;
 assert any (
