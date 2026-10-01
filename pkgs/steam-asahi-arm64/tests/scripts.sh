@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
+# Target: Bash 5.3 (from the flake's nixpkgs)
 # shellcheck disable=SC1091,SC2034
 #
-# Portable behavioral tests for the architecture-independent shell scripts.
+# Portable behavioral tests for the launchers and guest shell scripts
 
 set -o errexit
 set -o nounset
@@ -160,45 +161,9 @@ test_sourceability() {
       || fail 'glibc command was not linked'
   )
 
-  (
-    CLIENT_BOOTSTRAP=/tmp
-    CLIENT_UPDATE_CHANNEL=publicbeta
-    COMPATIBILITY_TOOL_DIRECTORY=compat
-    COMPATIBILITY_TOOL_VDF=/tmp/vdf
-    CPU_ARGS=()
-    CUSTOM_STEAM_HOME_DIR=
-    DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home
-    DISPLAY_NAME=Proton
-    ENV_BIN=/usr/bin/env
-    FLOCK="$(command -v flock)"
-    GUEST_LAUNCHER=/bin/true
-    HOST_LIBRARIES=/tmp
-    INIT_SCRIPT=/bin/true
-    MEMORY_ARGS=()
-    MUVM=/bin/true
-    NETWORK_ARGS=()
-    PROTON_DIRECTORY=proton
-    PROTON_CONFIGURATOR=/bin/true
-    PROTON_RUNNER=/bin/true
-    PROTON_TOOL_NAME=proton-test
-    PROTON_WRAPPER=/bin/true
-    RUNTIME_APP_ID=1
-    RUNTIME_DIRECTORY=runtime
-    TOOL_MANIFEST=/tmp/manifest
-    VRAM_ARGS=()
-    YAD=/bin/true
-    HOME="${TEST_ROOT}/source home"
-    local source_home="${HOME}"
-    # shellcheck source=../scripts/launcher.sh
-    source "${PACKAGE_ROOT}/scripts/launcher.sh"
-    assert_equal "${source_home}" "${HOME}" 'sourcing launcher changed HOME'
-    declare -F import_login_state >/dev/null
-    declare -F initialize_steam_home >/dev/null
-    declare -F install_managed_file >/dev/null
-    declare -F run_with_steam_lock >/dev/null
-    declare -F sync_pulse_cookie >/dev/null
-    declare -F write_managed_value >/dev/null
-  )
+  python3.14 -I -B \
+    "${PACKAGE_ROOT}/tests/check-launcher-imports.py" \
+    "${REPOSITORY_ROOT}/pkgs/scripts/launcher"
 
   (
     # shellcheck source=../scripts/lspci.sh
@@ -459,14 +424,31 @@ EOF
   printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/muvm"
   cat >>"${launcher_root}/muvm" <<'EOF'
 printf '%s\n' "$@" >"${TEST_MUVM_OUTPUT}"
+printf '%s\n' "${LANG}" "${LC_ALL}" \
+  "${LC_TIME-unset}" "${BASH_ENV-unset}" "${ENV-unset}" \
+  >"${TEST_MUVM_OUTPUT}.environment"
+if [[ "${TEST_MUVM_WAIT_FOR_YAD:-0}" == 1 ]]; then
+  for attempt in {1..80}; do
+    [[ ! -f "${TEST_MUVM_OUTPUT}.yad-pid" ]] || break
+    sleep 0.05
+  done
+  [[ -f "${TEST_MUVM_OUTPUT}.yad-pid" ]] || exit 99
+fi
 if [[ -n "${TEST_MUVM_HOLD_FILE:-}" ]]; then
   touch -- "${TEST_MUVM_HOLD_FILE}.ready"
   while [[ -e "${TEST_MUVM_HOLD_FILE}" ]]; do
     sleep 0.05
   done
 fi
+exit "${TEST_MUVM_EXIT_STATUS:-0}"
 EOF
   chmod +x -- "${launcher_root}/muvm"
+  printf '#!%s\n' "${TEST_SH}" >"${launcher_root}/yad"
+  cat >>"${launcher_root}/yad" <<'EOF'
+printf '%s\n' "$$" >"${TEST_MUVM_OUTPUT}.yad-pid"
+exec sleep 30
+EOF
+  chmod +x -- "${launcher_root}/yad"
 
   run_test_launcher() {
     env \
@@ -477,8 +459,6 @@ EOF
       CUSTOM_STEAM_HOME_DIR= \
       DEFAULT_STEAM_HOME_DIR=steam-asahi-arm64-home \
       DISPLAY_NAME='Test Proton' \
-      ENV_BIN="$(command -v env)" \
-      FLOCK="$(command -v flock)" \
       GUEST_LAUNCHER=/guest-launcher \
       HOME="${home}" \
       HOST_LIBRARIES="${launcher_root}/host-libs" \
@@ -491,14 +471,16 @@ EOF
       PROTON_WRAPPER="${launcher_root}/proton-wrapper" \
       RUNTIME_APP_ID=123 \
       RUNTIME_DIRECTORY='Test Runtime' \
-      STEAM_ASAHI_NO_SPLASH=1 \
+      STEAM_ASAHI_NO_SPLASH="${STEAM_ASAHI_NO_SPLASH:-1}" \
       TEST_CONFIGURATOR_OUTPUT="${configurator_output}" \
       TEST_MUVM_HOLD_FILE="${TEST_MUVM_HOLD_FILE:-}" \
       TEST_MUVM_OUTPUT="${output}" \
       TOOL_MANIFEST="${launcher_root}/toolmanifest.vdf" \
       XDG_DATA_HOME="${home}/data" \
-      YAD=/bin/false \
-      bash "${PACKAGE_ROOT}/scripts/launcher.sh" "$@"
+      YAD="${launcher_root}/yad" \
+      python3.14 -I -B \
+        "${PACKAGE_ROOT}/tests/run-launcher.py" \
+        "${REPOSITORY_ROOT}" "$@"
   }
 
   run_test_launcher --force-proton "${FORCE_PROTON_APP_ID}"
@@ -525,6 +507,19 @@ EOF
     "${configurator_output}" "${FORCE_PROTON_APP_ID}"
   assert_file_contains_line "${configurator_output}" proton_test
 
+  LC_TIME=C ENV=/host/environment BASH_ENV=/host/environment \
+    run_test_launcher 'argument with spaces' '*'
+  assert_file_lines "${output}.environment" 'clean guest environment' \
+    C.UTF-8 C.UTF-8 unset unset unset
+  assert_file_contains_line "${output}" 'argument with spaces'
+  assert_file_contains_line "${output}" '*'
+  TEST_MUVM_EXIT_STATUS=29 run_expect_status 29 run_test_launcher
+  run_expect_status 1 run_test_launcher --force-proton 0
+  run_expect_status 1 run_test_launcher --force-proton 01
+  run_expect_status 1 run_test_launcher --force-proton '１２'
+  run_expect_status 1 run_test_launcher --guest
+  run_expect_status 1 run_test_launcher --import-login --guest true
+
   local hold_file="${launcher_root}/hold-muvm"
   local running_pid
   touch -- "${hold_file}"
@@ -538,7 +533,8 @@ EOF
       || fail 'background launcher exited before acquiring its lock'
     sleep 0.05
   done
-  if run_test_launcher --force-proton "${FORCE_PROTON_APP_ID}" \
+  if STEAM_ASAHI_LOCKED=1 \
+    run_test_launcher --force-proton "${FORCE_PROTON_APP_ID}" \
     2>"${launcher_root}/lock-error"; then
     fail 'a second launcher bypassed the host-side Steam lock'
   fi
@@ -549,7 +545,27 @@ EOF
   rm -f -- "${hold_file}"
   wait "${running_pid}"
 
-  if find "${steam_directory}" -name '.*.??????' -print -quit | grep -q .; then
+  # The splash watcher must release its copy of the lock before muvm exits
+  STEAM_ASAHI_NO_SPLASH=0 TEST_MUVM_WAIT_FOR_YAD=1 \
+    run_test_launcher >"${launcher_root}/splash-output"
+  run_test_launcher >"${launcher_root}/post-splash-output"
+  local splash_pid
+  local attempt
+  for attempt in {1..80}; do
+    [[ ! -f "${output}.yad-pid" ]] || break
+    sleep 0.05
+  done
+  [[ -f "${output}.yad-pid" ]] || fail 'startup dialog did not launch'
+  splash_pid=$(<"${output}.yad-pid")
+  for attempt in {1..80}; do
+    kill -0 "${splash_pid}" 2>/dev/null || break
+    sleep 0.05
+  done
+  if kill -0 "${splash_pid}" 2>/dev/null; then
+    fail 'startup dialog survived the launched process'
+  fi
+
+  if find "${steam_directory}" -name '.*.????????' -print -quit | grep -q .; then
     fail 'launcher left a managed-file temporary path behind'
   fi
 }

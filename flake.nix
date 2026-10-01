@@ -10,166 +10,60 @@
     let
       system = "aarch64-linux";
 
+      lib = nixpkgs.lib;
       nixosModuleLocation = __curPos.file + "#nixosModules.default";
 
-      pkgs = import nixpkgs {
-        localSystem = { inherit system; };
-        config.allowUnfree = true; # steam-unwrapped
-        overlays = [ self.overlays.default ];
-      };
+      # The launcher tests execute architecture-independent Python and shell code
+      pkgsFor = lib.genAttrs [ system "x86_64-linux" ] (
+        checkSystem:
+        import nixpkgs {
+          localSystem.system = checkSystem;
+          config = {
+            allowUnfree = true;
+            allowUnsupportedSystem = checkSystem != system;
+          };
+          overlays = [ self.overlays.default ];
+        }
+      );
+      pkgs = pkgsFor.${system};
 
-      # Keep the NixOS VM focused on this module. Steam and muvm have their own
-      # package checks; the VM only needs a small executable plus muvm's policy
-      # source layout to exercise the module's runtime integration.
-      vmTestOverlay = final: _prev: {
-        muvm =
-          let
-            source = final.runCommand "muvm-test-source" { } ''
-              mkdir -p \
-                "$out/share/wireplumber/wireplumber.conf.d" \
-                "$out/share/wireplumber/scripts/client"
-              touch \
-                "$out/share/wireplumber/wireplumber.conf.d/50-muvm-access.conf" \
-                "$out/share/wireplumber/scripts/client/access-muvm.lua"
-            '';
-          in
-          (final.writeShellApplication {
-            name = "muvm";
-            text = ''
-              printf '%s\n' 'muvm test double'
-            '';
-          }).overrideAttrs
-            {
-              inherit source;
-              pname = "muvm";
-              src = source;
-              version = "test";
-            };
-      };
-
-      aarch64VmPkgs = pkgs.extend vmTestOverlay;
-      x86VmPkgs = x86TestPkgs.extend vmTestOverlay;
-
-      # These tests execute only architecture-independent shell code, so keep
-      # them runnable from the x86_64 machines commonly used for development.
-      x86TestPkgs = import nixpkgs {
-        localSystem.system = "x86_64-linux";
-        config = {
-          allowUnfree = true;
-          allowUnsupportedSystem = true;
-        };
-        overlays = [ self.overlays.default ];
-      };
-
-      shellSources = nixpkgs.lib.fileset.toSource {
+      shellFiles = lib.fileset.unions [
+        (lib.fileset.fileFilter (file: file.hasExt "sh") ./pkgs)
+        ./pkgs/steam-asahi-arm64/proton/run-proton
+        ./pkgs/steam-asahi-arm64/proton/steam-asahi-proton
+      ];
+      shellSources = lib.fileset.toSource {
         root = ./.;
-        fileset = nixpkgs.lib.fileset.unions [
-          ./pkgs/scripts/common.sh
-          ./pkgs/steam-asahi/scripts/fex-diagnostic.sh
-          ./pkgs/steam-asahi/scripts/fex-steam.sh
-          ./pkgs/steam-asahi/scripts/init.sh
-          ./pkgs/steam-asahi/scripts/launcher.sh
-          ./pkgs/steam-asahi/scripts/lspci.sh
-          ./pkgs/steam-asahi-arm64/proton/run-proton
-          ./pkgs/steam-asahi-arm64/proton/steam-asahi-proton
-          ./pkgs/steam-asahi-arm64/scripts/guest.sh
-          ./pkgs/steam-asahi-arm64/scripts/init.sh
-          ./pkgs/steam-asahi-arm64/scripts/launcher.sh
-          ./pkgs/steam-asahi-arm64/scripts/lspci.sh
-          ./pkgs/steam-asahi-arm64/tests/scripts.sh
+        fileset = shellFiles;
+      };
+      scriptTestSources = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          shellFiles
+          ./pkgs/scripts/launcher
+          ./pkgs/steam-asahi-arm64/tests/check-launcher-imports.py
+          ./pkgs/steam-asahi-arm64/tests/run-launcher.py
         ];
       };
 
-      mkShellChecks =
-        testPkgs:
-        let
-          style =
-            testPkgs.runCommand "steam-asahi-shell-style"
-              {
-                nativeBuildInputs = [
-                  testPkgs.findutils
-                  testPkgs.gawk
-                  testPkgs.gnugrep
-                ];
-              }
-              ''
-                if grep -R -n $'\t' ${shellSources}; then
-                  printf '%s\n' 'Shell sources must use spaces, not tabs.' >&2
-                  exit 1
-                fi
-                if grep -R -nE '[[:blank:]]+$' ${shellSources}; then
-                  printf '%s\n' 'Shell sources have trailing whitespace.' >&2
-                  exit 1
-                fi
-                if grep -R -n $'\r' ${shellSources}; then
-                  printf '%s\n' 'Shell sources must use Unix line endings.' >&2
-                  exit 1
-                fi
-
-                mapfile -d "" shell_files \
-                  < <(find ${shellSources} -type f -print0)
-                for shell_file in "''${shell_files[@]}"; do
-                  IFS= read -r first_line < "''${shell_file}"
-                  case "''${first_line}" in
-                    '# shellcheck shell=bash') ;;
-                    '#!/usr/bin/env bash')
-                      for option in errexit nounset pipefail; do
-                        if ! grep -Fqx "set -o ''${option}" \
-                          "''${shell_file}"; then
-                          printf '%s: missing strict option %s\n' \
-                            "''${shell_file}" "''${option}" >&2
-                          exit 1
-                        fi
-                      done
-                      if ! grep -Fqx 'main() {' "''${shell_file}"; then
-                        printf '%s: missing main function\n' \
-                          "''${shell_file}" >&2
-                        exit 1
-                      fi
-                      ;;
-                    '#!/bin/sh') ;;
-                    *)
-                      printf '%s: unsupported shell interpreter: %s\n' \
-                        "''${shell_file}" "''${first_line}" >&2
-                      exit 1
-                      ;;
-                  esac
-                done
-
-                awk '
-                  length($0) > 80 {
-                    printf "%s:%d: line exceeds 80 characters\n", FILENAME, FNR
-                    failed = 1
-                  }
-                  END { exit failed }
-                ' "''${shell_files[@]}"
-                touch "$out"
-              '';
-        in
-        {
-          shellcheck = testPkgs.testers.shellcheck {
-            name = "steam-asahi";
-            src = shellSources;
-          };
-          shell-style = style;
-        };
-
       # Match nixpkgs' current formatter setup: semantic cleanup runs first and
       # nixfmt normalizes the result. The same package is both the `nix fmt`
-      # entry point and the source-formatting check.
+      # entry point and the source-formatting check
       mkFormatter =
         formatterPkgs:
         formatterPkgs.treefmt.withConfig {
           runtimeInputs = [
             formatterPkgs.nixf-diagnose
             formatterPkgs.nixfmt
+            formatterPkgs.ruff
+            formatterPkgs.shfmt
           ];
           settings = {
             on-unmatched = "debug";
             tree-root-file = "flake.nix";
             formatter = {
               nixf-diagnose = {
-                command = nixpkgs.lib.meta.getExe formatterPkgs.nixf-diagnose;
+                command = lib.meta.getExe formatterPkgs.nixf-diagnose;
                 includes = [ "*.nix" ];
                 options = [
                   "--auto-fix"
@@ -184,48 +78,56 @@
                 ];
                 priority = -1;
               };
+              python = {
+                command = lib.meta.getExe formatterPkgs.ruff;
+                includes = [ "*.py" ];
+                options = [
+                  "format"
+                  "--line-length=80"
+                  "--target-version=py314"
+                ];
+              };
+              shell = {
+                command = lib.meta.getExe formatterPkgs.shfmt;
+                includes = [
+                  "pkgs/scripts/*.sh"
+                  "pkgs/steam-asahi/scripts/*.sh"
+                  "pkgs/steam-asahi-arm64/scripts/*.sh"
+                  "pkgs/steam-asahi-arm64/proton/run-proton"
+                  "pkgs/steam-asahi-arm64/proton/steam-asahi-proton"
+                ];
+                options = [
+                  "-w"
+                  "-i"
+                  "2"
+                  "-ci"
+                  "-bn"
+                ];
+              };
               nixfmt = {
-                command = nixpkgs.lib.meta.getExe formatterPkgs.nixfmt;
+                command = lib.meta.getExe formatterPkgs.nixfmt;
                 includes = [ "*.nix" ];
               };
             };
           };
         };
 
-      aarch64Formatter = mkFormatter pkgs;
-      x86Formatter = mkFormatter x86TestPkgs;
-
-      x86ShellScriptsCheck =
-        x86TestPkgs.runCommand "steam-asahi-shell-scripts-test"
+      mkShellScriptsCheck =
+        testPkgs:
+        testPkgs.runCommand "steam-asahi-shell-scripts-test"
           {
             nativeBuildInputs = [
-              x86TestPkgs.bash
-              x86TestPkgs.coreutils
-              x86TestPkgs.shellcheck
-              x86TestPkgs.util-linux
+              testPkgs.bash
+              testPkgs.coreutils
+              testPkgs.python314
+              testPkgs.util-linux
             ];
           }
           ''
-            shellcheck \
-              ${./pkgs/scripts/common.sh} \
-              ${./pkgs/steam-asahi/scripts/fex-diagnostic.sh} \
-              ${./pkgs/steam-asahi/scripts/fex-steam.sh} \
-              ${./pkgs/steam-asahi/scripts/init.sh} \
-              ${./pkgs/steam-asahi/scripts/launcher.sh} \
-              ${./pkgs/steam-asahi/scripts/lspci.sh} \
-              ${./pkgs/steam-asahi-arm64/scripts/guest.sh} \
-              ${./pkgs/steam-asahi-arm64/scripts/init.sh} \
-              ${./pkgs/steam-asahi-arm64/scripts/launcher.sh} \
-              ${./pkgs/steam-asahi-arm64/scripts/lspci.sh} \
-              ${./pkgs/steam-asahi-arm64/tests/scripts.sh}
-            shellcheck --shell=sh \
-              ${./pkgs/steam-asahi-arm64/proton/run-proton} \
-              ${./pkgs/steam-asahi-arm64/proton/steam-asahi-proton}
-
             diagnostic_output=$(BASH_ENV= PATH= \
               COMMON_SCRIPT=${./pkgs/scripts/common.sh} \
-              ${x86TestPkgs.bash}/bin/bash -c \
-              'exec ${x86TestPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
+              ${testPkgs.bash}/bin/bash -c \
+              'exec ${testPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
               ${./pkgs/steam-asahi/scripts/fex-diagnostic.sh} \
               'printf "%s" "$PATH"')
             test "$diagnostic_output" = /usr/local/bin:/usr/bin:/bin
@@ -234,50 +136,35 @@
               COMMON_SCRIPT=${./pkgs/scripts/common.sh} \
               XDG_DATA_DIRS=/host/share \
               STEAM_ASAHI_GUEST_UID=1234 \
-              ${x86TestPkgs.bash}/bin/bash -c \
-              'exec ${x86TestPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
+              ${testPkgs.bash}/bin/bash -c \
+              'exec ${testPkgs.bash}/bin/bash "$@"' steam-asahi-fex \
               ${./pkgs/steam-asahi/scripts/fex-steam.sh} \
-              ${x86TestPkgs.bash}/bin/bash -c \
+              ${testPkgs.bash}/bin/bash -c \
               'printf "%s|%s|%s|%s|%s|%s" "$1" "$2" "$PULSE_SERVER" "$PATH" "''${GIO_EXTRA_MODULES-unset}" "$XDG_DATA_DIRS"' \
               steam-asahi 'one two' 'semi;colon')
             test "$steam_output" = \
               'one two|semi;colon|unix:/run/user/1234/pulse/native|/usr/local/bin:/usr/bin:/bin|unset|/run/opengl-driver/share:/run/current-system/sw/share:/usr/local/share:/usr/share:/host/share'
 
-            bash ${./pkgs/steam-asahi-arm64/tests/scripts.sh} ${./.}
+            bash ${scriptTestSources}/pkgs/steam-asahi-arm64/tests/scripts.sh ${scriptTestSources}
             touch "$out"
           '';
 
-      nixosModuleCheck =
-        testPkgs:
-        import ./modules/tests.nix {
+      mkChecks = testPkgs: {
+        formatting = (mkFormatter testPkgs).check self;
+        shellcheck = testPkgs.testers.shellcheck {
+          name = "steam-asahi";
+          src = shellSources;
+        };
+        steam-arm64-client-layout = testPkgs.steam-arm64-client.tests.layout;
+        steam-arm64-client-update-script = testPkgs.steam-arm64-client.tests.updateScript;
+        steam-asahi-launcher = testPkgs.callPackage ./pkgs/steam-asahi/tests/launcher.nix { };
+        steam-asahi-arm64-launcher = testPkgs.callPackage ./pkgs/steam-asahi-arm64/tests/launcher.nix { };
+        steam-asahi-module = import ./modules/tests.nix {
           inherit nixpkgs;
           module = self.nixosModules.default;
           pkgs = testPkgs;
         };
-
-      nixosVmTest =
-        {
-          vmPkgs,
-          pretendAarch64 ? false,
-        }:
-        vmPkgs.testers.runNixOSTest {
-          imports = [ ./modules/vm-test.nix ];
-          _module.args = {
-            inherit pretendAarch64;
-            module = ./modules/steam-asahi.nix;
-          };
-        };
-
-      aarch64NixosVmTest = nixosVmTest {
-        vmPkgs = aarch64VmPkgs;
-      };
-
-      # The evaluation test separately proves that real x86 configurations are
-      # rejected. Here only the module-local platform value is replaced so an
-      # ordinary x86 contributor can boot-test the remaining NixOS integration.
-      x86NixosVmTest = nixosVmTest {
-        vmPkgs = x86VmPkgs;
-        pretendAarch64 = true;
+        steam-asahi-shell-scripts = mkShellScriptsCheck testPkgs;
       };
     in
     {
@@ -296,35 +183,13 @@
         default = pkgs.steam-asahi;
       };
 
-      checks.${system} = {
-        formatting = aarch64Formatter.check self;
-        steam-arm64-client-layout = pkgs.steam-arm64-client.tests.layout;
-        steam-arm64-client-update-script = pkgs.steam-arm64-client.tests.updateScript;
-        inherit (pkgs) steam-asahi;
-        steam-asahi-launcher = pkgs.callPackage ./pkgs/steam-asahi/tests/launcher.nix { };
-        steam-asahi-module = nixosModuleCheck pkgs;
-        steam-asahi-nixos-vm = aarch64NixosVmTest;
-        steam-asahi-source-scripts = pkgs.steam-asahi.tests.sourceScripts;
-        inherit (pkgs) steam-asahi-arm64;
-        steam-asahi-arm64-launcher = pkgs.callPackage ./pkgs/steam-asahi-arm64/tests/launcher.nix { };
-        steam-asahi-arm64-proton-scripts = pkgs.steam-asahi-arm64.tests.protonScripts;
-        steam-asahi-arm64-source-scripts = pkgs.steam-asahi-arm64.tests.sourceScripts;
-      }
-      // mkShellChecks pkgs;
-
-      checks.x86_64-linux = {
-        formatting = x86Formatter.check self;
-        steam-arm64-client-layout = x86TestPkgs.steam-arm64-client.tests.layout;
-        steam-arm64-client-update-script = x86TestPkgs.steam-arm64-client.tests.updateScript;
-        steam-asahi-launcher = x86TestPkgs.callPackage ./pkgs/steam-asahi/tests/launcher.nix { };
-        steam-asahi-arm64-launcher =
-          x86TestPkgs.callPackage ./pkgs/steam-asahi-arm64/tests/launcher.nix
-            { };
-        steam-asahi-module = nixosModuleCheck x86TestPkgs;
-        steam-asahi-nixos-vm = x86NixosVmTest;
-        steam-asahi-shell-scripts = x86ShellScriptsCheck;
-      }
-      // mkShellChecks x86TestPkgs;
+      checks = lib.mapAttrs (
+        checkSystem: testPkgs:
+        mkChecks testPkgs
+        // lib.optionalAttrs (checkSystem == system) {
+          inherit (testPkgs) steam-asahi steam-asahi-arm64;
+        }
+      ) pkgsFor;
 
       nixosModules.default = {
         _class = "nixos";
@@ -336,10 +201,7 @@
       };
       nixosModules.steam-asahi = self.nixosModules.default;
 
-      formatter = {
-        ${system} = aarch64Formatter;
-        x86_64-linux = x86Formatter;
-      };
+      formatter = lib.mapAttrs (_: mkFormatter) pkgsFor;
 
       devShells.${system}.default =
         let

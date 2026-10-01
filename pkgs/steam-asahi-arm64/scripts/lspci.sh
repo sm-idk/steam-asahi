@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Hides pciutils errors on Apple Silicon systems that have no PCI devices.
+# Hides pciutils errors on Apple Silicon systems that have no PCI devices
 
 set -o errexit
 set -o nounset

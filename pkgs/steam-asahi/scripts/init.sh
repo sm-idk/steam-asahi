@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Builds the temporary FHS layout required by Steam and Pressure Vessel.
+# Builds the temporary FHS layout required by Steam and Pressure Vessel
 
 set -o errexit
 set -o nounset
@@ -26,6 +26,8 @@ readonly -a REQUIRED_CONFIGURATION_VARIABLES=(
 )
 require_configuration_variables "${REQUIRED_CONFIGURATION_VARIABLES[@]}"
 
+# Consumed by the shared install_relative_links helper through a nameref
+# shellcheck disable=SC2034
 readonly -A FHS_COMMAND_LINKS=(
   ["bin/bash"]="${BASH_BIN}"
   ["bin/lsb_release"]="${LSB_RELEASE}"
@@ -38,6 +40,7 @@ readonly -A FHS_COMMAND_LINKS=(
   ["usr/bin/pactl"]="${PACTL}"
   ["usr/bin/zenity"]="${ZENITY}"
 )
+# shellcheck disable=SC2034
 readonly -A FHS_INTERNAL_LINKS=(
   ["usr/bin/lspci"]=bin/lspci
 )
@@ -60,23 +63,14 @@ readonly -A FUSERMOUNT_WRAPPERS=(
   ["fusermount"]="${FUSERMOUNT}"
   ["fusermount3"]="${FUSERMOUNT3}"
 )
-# This private mount contains only the directory and two small helper binaries.
-readonly FUSERMOUNT_TMPFS_OPTIONS=\
-'nodev,noatime,nosymfollow,exec,suid,mode=0755,size=4M,nr_inodes=64'
+# This private mount contains only the directory and two small helper binaries
+FUSERMOUNT_TMPFS_OPTIONS=nodev,noatime,nosymfollow,exec,suid
+FUSERMOUNT_TMPFS_OPTIONS+=,mode=0755,size=4M,nr_inodes=64
+readonly FUSERMOUNT_TMPFS_OPTIONS
 
 install_fhs_commands() {
-  local relative_path
-
-  for relative_path in "${!FHS_COMMAND_LINKS[@]}"; do
-    ln --symbolic --force --no-target-directory -- \
-      "${FHS_COMMAND_LINKS[${relative_path}]}" \
-      "${FHS_ROOT}/${relative_path}"
-  done
-  for relative_path in "${!FHS_INTERNAL_LINKS[@]}"; do
-    ln --symbolic --force --no-target-directory -- \
-      "${FHS_ROOT}/${FHS_INTERNAL_LINKS[${relative_path}]}" \
-      "${FHS_ROOT}/${relative_path}"
-  done
+  install_relative_links "${FHS_ROOT}" FHS_COMMAND_LINKS || return
+  install_relative_links "${FHS_ROOT}" FHS_INTERNAL_LINKS "${FHS_ROOT}"
 }
 
 install_etc_overlay() {
@@ -109,14 +103,16 @@ install_fusermount_wrappers() {
 }
 
 main() {
+  require_muvm_guest
+
   # /usr is read-only in the guest. Construct a writable FHS tree in tmpfs,
-  # then bind it over the inherited host directories.
+  # then bind it over the inherited host directories
   create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}"
   copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}"
 
   install_fhs_commands
 
-  # Pressure Vessel generates locales from glibc's charmaps when needed.
+  # Pressure Vessel generates locales from glibc's charmaps when needed
   mkdir -p -- "${FHS_ROOT}/usr/share"
   rm --force --recursive --one-file-system --preserve-root=all -- \
     "${FHS_ROOT}/usr/share/i18n"
@@ -124,7 +120,7 @@ main() {
     "${GLIBC_I18N}" \
     "${FHS_ROOT}/usr/share/i18n"
 
-  # Steam creates overlay and Fossilize layer metadata in users' XDG trees.
+  # Steam creates overlay and Fossilize layer metadata in users' XDG trees
   install_vulkan_metadata \
     /home/*/.local/share/vulkan/implicit_layer.d/steam*.json
   bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}"

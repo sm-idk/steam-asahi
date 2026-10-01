@@ -1,37 +1,46 @@
-#!/usr/bin/env python3
-"""Set one Steam application to use the managed ARM64 Proton tool."""
+#!/usr/bin/env python3.14
+# /// script
+# requires-python = "==3.14.*"
+# dependencies = ["vdf"]
+# ///
+
+"""Set one Steam application to use the managed ARM64 Proton tool"""
 
 from __future__ import annotations
 
 import argparse
-import os
-from collections.abc import MutableMapping
-from pathlib import Path
 import shutil
+import stat
 import tempfile
+from pathlib import Path
+from typing import cast
 
 import vdf
 
+type VdfObject = dict[str, str | VdfObject]
+
+
+class Arguments(argparse.Namespace):
+    config_path: Path
+    app_id: str
+    tool_name: str
+
 
 class ConfigurationError(RuntimeError):
-    """Steam's configuration cannot be updated safely."""
+    """Steam's configuration cannot be updated safely"""
 
 
 def parse_app_id(value: str) -> str:
-    if (
-        not value.isascii()
-        or not value.isdecimal()
-        or value.startswith("0")
-    ):
-        raise argparse.ArgumentTypeError("APPID must be a positive decimal integer")
+    if not value.isascii() or not value.isdecimal() or value.startswith("0"):
+        raise argparse.ArgumentTypeError(
+            "APPID must be a positive decimal integer"
+        )
     return value
 
 
-def child_mapping(
-    parent: MutableMapping[str, object], key: str
-) -> MutableMapping[str, object]:
+def child_mapping(parent: VdfObject, key: str) -> VdfObject:
     value = parent.setdefault(key, {})
-    if not isinstance(value, MutableMapping):
+    if not isinstance(value, dict):
         raise ConfigurationError(f'expected VDF object at key "{key}"')
     return value
 
@@ -45,22 +54,24 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
 
     try:
         with config_path.open(encoding="utf-8") as config_file:
-            config = vdf.load(config_file)
+            config: object = vdf.load(config_file)
     except (OSError, SyntaxError, UnicodeError) as error:
         raise ConfigurationError(
             f"unable to read Steam configuration {config_path}: {error}"
         ) from error
-    if not isinstance(config, MutableMapping):
+    if not isinstance(config, dict):
         raise ConfigurationError(
             f"expected a VDF object at the root of {config_path}"
         )
 
+    # VDF leaves are strings; validate objects as we traverse the requested path
+    config = cast(VdfObject, config)
     current = config
     for key in ("InstallConfigStore", "Software", "Valve", "Steam"):
         current = child_mapping(current, key)
     mappings = child_mapping(current, "CompatToolMapping")
 
-    requested = {
+    requested: VdfObject = {
         "name": tool_name,
         "config": "",
         "priority": "250",
@@ -76,19 +87,18 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
         if not backup_path.exists():
             shutil.copy2(config_path, backup_path)
 
-        temporary_fd, temporary_name = tempfile.mkstemp(
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
             dir=config_path.parent,
             prefix=f".{config_path.name}.",
-        )
-        temporary_path = Path(temporary_name)
-        try:
-            with os.fdopen(temporary_fd, "w", encoding="utf-8") as config_file:
-                vdf.dump(config, config_file, pretty=True)
-            temporary_path.chmod(config_path.stat().st_mode & 0o777)
+            delete_on_close=False,
+        ) as config_file:
+            temporary_path = Path(config_file.name)
+            vdf.dump(config, config_file, pretty=True)
+            config_file.close()
+            temporary_path.chmod(stat.S_IMODE(config_path.stat().st_mode))
             temporary_path.replace(config_path)
-        except BaseException:
-            temporary_path.unlink(missing_ok=True)
-            raise
     except OSError as error:
         raise ConfigurationError(
             f"unable to update Steam configuration {config_path}: {error}"
@@ -102,7 +112,7 @@ def main() -> int:
     parser.add_argument("config_path", type=Path)
     parser.add_argument("app_id", type=parse_app_id)
     parser.add_argument("tool_name")
-    arguments = parser.parse_args()
+    arguments = parser.parse_args(namespace=Arguments())
 
     try:
         changed = update_config(

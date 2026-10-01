@@ -127,6 +127,26 @@ runCommand "steam-asahi-launcher-test" { } ''
   grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/muvm-arguments"
   grep -Fx -- '--vram=2048' "$HOME/muvm-arguments"
 
+  # Honor FEX's nested JSON configuration even without a local rootfs image
+  rm "$rootfs_directory/test.sqsh"
+  mkdir -p "$XDG_CONFIG_HOME/fex-emu"
+  printf '%s\n' '{"Config":{"RootFS":"/external/rootfs.sqsh"}}' \
+    > "$XDG_CONFIG_HOME/fex-emu/Config.json"
+  ${lib.meta.getExe package} --fex "$diagnostic_command"
+  grep -Fx -- "$diagnostic_command" "$HOME/muvm-arguments"
+
+  # Text resembling RootFS in malformed JSON must trigger the fetcher
+  printf '%s\n' 'invalid {"RootFS":"/external/rootfs.sqsh"}' \
+    > "$XDG_CONFIG_HOME/fex-emu/Config.json"
+  if ${lib.meta.getExe package} --fex "$diagnostic_command" \
+    2>"$HOME/rootfs-error"; then
+    printf '%s\n' 'malformed FEX configuration unexpectedly succeeded' >&2
+    exit 1
+  fi
+  grep -Fx -- 'unexpected FEX rootfs fetch' "$HOME/rootfs-error"
+  printf '%s\n' '{"Config":{"RootFS":"/external/rootfs.sqsh"}}' \
+    > "$XDG_CONFIG_HOME/fex-emu/Config.json"
+
   # The diagnostic interface accepts one explicit shell program. Requiring the
   # caller to quote it avoids silently joining and reparsing an argv array.
   if ${lib.meta.getExe package} --fex uname -m; then

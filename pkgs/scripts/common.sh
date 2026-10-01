@@ -1,13 +1,23 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 #
-# Shared runtime policy for the Steam Asahi launchers and guest setup scripts.
+# Shared runtime policy for the Steam Asahi guest setup scripts
+
+# FEX uses the rootfs's Bash, independently of the version provided by Nix
+if ((BASH_VERSINFO[0] < 5)) \
+  || ((BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3)); then
+  printf 'ERROR: Steam Asahi requires Bash >= 5.3; found %s\n' \
+    "${BASH_VERSION}" >&2
+  exit 1
+fi
 
 if [[ -v STEAM_ASAHI_COMMON_LOADED ]]; then
   return 0
 fi
 readonly STEAM_ASAHI_COMMON_LOADED=1
 
+# Declares an immutable array, preserving an explicitly supplied array
+# Arguments: variable name, default elements
 declare_readonly_array_default() {
   local variable_name=$1
 
@@ -28,11 +38,12 @@ readonly FHS_ROOT=/run/fhs
 readonly LOCALE_ARCHIVE_PATH=/run/current-system/sw/lib/locale/locale-archive
 readonly OPENGL_DRIVER_ROOT=/run/opengl-driver
 readonly OPENGL_VULKAN_SHARE="${OPENGL_DRIVER_ROOT}/share/vulkan"
+readonly EGL_VENDOR_DIRECTORY="${OPENGL_DRIVER_ROOT}/share/glvnd/egl_vendor.d"
+readonly ARM64_VULKAN_ICD="${OPENGL_VULKAN_SHARE}/icd.d/asahi_icd.aarch64.json"
 readonly PCI_DEVICES_DIRECTORY=/sys/bus/pci/devices
-readonly PRESSURE_VESSEL_SHARE=\
-"${FHS_ROOT}/usr/lib/pressure-vessel/overrides/share"
-readonly SPLASH_BORDER_WIDTH=16
-readonly SPLASH_TIMEOUT_SECONDS=180
+readonly MUVM_HOST_DIRECTORY=/run/muvm-host
+readonly PRESSURE_VESSEL_DIRECTORY="${FHS_ROOT}/usr/lib/pressure-vessel"
+readonly PRESSURE_VESSEL_SHARE="${PRESSURE_VESSEL_DIRECTORY}/overrides/share"
 readonly TZDATA_DIRECTORY=/usr/share/zoneinfo
 readonly VULKAN_OVERRIDES="${PRESSURE_VESSEL_SHARE}/vulkan"
 readonly VULKAN_SHARE="${FHS_ROOT}/usr/share/vulkan"
@@ -53,11 +64,6 @@ declare_readonly_array_default HOST_LOCALE_VARIABLES \
   LC_TELEPHONE \
   LC_TIME
 
-declare_readonly_array_default CLEAN_ENVIRONMENT_VARIABLES \
-  BASH_ENV \
-  ENV \
-  "${HOST_LOCALE_VARIABLES[@]}"
-
 declare_readonly_array_default GUEST_PATH_ENTRIES \
   /usr/local/bin \
   /usr/bin \
@@ -77,14 +83,12 @@ readonly -A COMMON_DRIVER_ENVIRONMENT=(
   [LIBGL_DRIVERS_PATH]="${OPENGL_DRIVER_ROOT}/lib/dri"
   [LIBVA_DRIVERS_PATH]="${OPENGL_DRIVER_ROOT}/lib/dri"
   [VDPAU_DRIVER_PATH]="${OPENGL_DRIVER_ROOT}/lib/vdpau"
-  [__EGL_VENDOR_LIBRARY_DIRS]=\
-"${OPENGL_DRIVER_ROOT}/share/glvnd/egl_vendor.d"
+  [__EGL_VENDOR_LIBRARY_DIRS]="${EGL_VENDOR_DIRECTORY}"
 )
 
 readonly -A ARM64_DRIVER_ENVIRONMENT=(
   [MESA_LOADER_DRIVER_OVERRIDE]=asahi
-  [VK_DRIVER_FILES]=\
-"${OPENGL_VULKAN_SHARE}/icd.d/asahi_icd.aarch64.json"
+  [VK_DRIVER_FILES]="${ARM64_VULKAN_ICD}"
 )
 
 declare_readonly_array_default ETC_STUB_DIRS \
@@ -114,36 +118,22 @@ declare_readonly_array_default VULKAN_SUBDIRECTORIES \
   explicit_layer.d \
   implicit_layer.d
 
-declare_readonly_array_default PRESSURE_VESSEL_READ_ONLY_PATHS \
-  /nix \
-  "${OPENGL_DRIVER_ROOT}"
 # Guest mounts are self-contained. Ignore host fstab policy, bypass helpers,
-# and refuse to stack an identical mount when an init script is retried.
+# and refuse to stack an identical mount when an init script is retried
 declare_readonly_array_default MOUNT_BASE_ARGS \
   --internal-only \
   --onlyonce \
   --options-source=disable
-declare_readonly_array_default STEAM_CLIENT_ARGS \
-  -cef-force-occlusion
 
-join_colon_values() {
-  local result_name=$1
-  local IFS=:
-
-  shift
-  printf -v "${result_name}" '%s' "$*"
-}
-
-join_colon_values \
-  PRESSURE_VESSEL_FILESYSTEMS_RO \
-  "${PRESSURE_VESSEL_READ_ONLY_PATHS[@]}"
-readonly PRESSURE_VESSEL_FILESYSTEMS_RO
-
+# Writes an error to stderr and exits with status 1
+# Arguments: words of the error message
 die() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
 
+# Requires nonempty configuration values and freezes them
+# Arguments: names of variables injected by Nix
 require_configuration_variables() {
   local variable_name
 
@@ -154,16 +144,15 @@ require_configuration_variables() {
   done
 }
 
-require_declared_configuration_variables() {
-  local variable_name
-
-  for variable_name in "$@"; do
-    [[ -v "${variable_name}" ]] \
-      || die "internal configuration ${variable_name} was not injected"
-    readonly "${variable_name}"
-  done
+# Requires muvm's host filesystem mount before any guest mount changes
+# Globals: MUVM_HOST_DIRECTORY; requires util-linux mountpoint
+require_muvm_guest() {
+  mountpoint --quiet -- "${MUVM_HOST_DIRECTORY}" \
+    || die 'guest initialization requires the muvm host filesystem mount'
 }
 
+# Exports an associative map of defaults, preserving nonempty overrides
+# Arguments: associative array name
 export_default_environment() {
   local defaults_name=$1
   local variable_name
@@ -177,6 +166,35 @@ export_default_environment() {
   done
 }
 
+# Clears inherited locale categories and exports the guest's UTF-8 locale
+# Globals: HOST_LOCALE_VARIABLES, C_LOCALE; writes LANG and LC_ALL
+configure_guest_locale() {
+  unset -v "${HOST_LOCALE_VARIABLES[@]}"
+  export LC_ALL="${C_LOCALE}"
+  export LANG="${C_LOCALE}"
+}
+
+# Exports shared graphics, audio, and data paths for the guest client
+# Arguments: numeric host user ID, optional additional guest PATH entries
+# Globals: guest path/data arrays and COMMON_DRIVER_ENVIRONMENT
+configure_guest_environment() {
+  local guest_uid=$1
+
+  shift
+  [[ "${guest_uid}" =~ ^[0-9]+$ ]] || die 'guest UID must be numeric'
+  prepend_colon_path PATH "${GUEST_PATH_ENTRIES[@]}" "$@"
+  export PULSE_SERVER="unix:/run/user/${guest_uid}/pulse/native"
+  export SDL_AUDIODRIVER=pulseaudio
+  prepend_colon_path XDG_DATA_DIRS "${GUEST_DATA_DIRECTORIES[@]}"
+  export_default_environment COMMON_DRIVER_ENVIRONMENT
+  configure_guest_locale
+  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE_PATH}"
+  export TZDIR="${TZDATA_DIRECTORY}"
+  unset -v GIO_EXTRA_MODULES
+}
+
+# Prepends entries to an exported colon-separated path without empty entries
+# Arguments: variable name, nonempty entries to prepend
 prepend_colon_path() {
   local variable_name=$1
   local existing_value=${!variable_name-}
@@ -189,86 +207,21 @@ prepend_colon_path() {
   export "${variable_name?}"
 }
 
-run_in_clean_environment() {
-  local variable_name
-  local -a arguments=()
-
-  for variable_name in "${CLEAN_ENVIRONMENT_VARIABLES[@]}"; do
-    arguments+=(-u "${variable_name}")
-  done
-  exec "${ENV_BIN}" \
-    "${arguments[@]}" \
-    LANG="${C_LOCALE}" \
-    LC_ALL="${C_LOCALE}" \
-    "$@"
-}
-
-warn_missing_audio_socket() {
-  local runtime_directory="${XDG_RUNTIME_DIR:-/run/user/${EUID}}"
-  local socket_path="${runtime_directory}/pulse/native"
-
-  [[ -S "${socket_path}" ]] && return
-  printf 'WARNING: PulseAudio socket not found at %s.\n' \
-    "${socket_path}" >&2
-  printf '%s\n' \
-    'Steam audio needs PipeWire Pulse or PulseAudio on the host.' \
-    'Enable one of them and restart Steam Asahi.' >&2
-}
-
+# Runs lspci with the original arguments only when PCI devices exist
+# Globals: PCI_DEVICES_DIRECTORY; requires nullglob
 run_lspci_if_devices_exist() {
   local -r GLOBSORT=nosort
   local -a device_paths
 
   if [[ -d "${PCI_DEVICES_DIRECTORY}" ]]; then
     device_paths=("${PCI_DEVICES_DIRECTORY}"/*)
-    (( ${#device_paths[@]} == 0 )) || exec lspci "$@"
+    ((${#device_paths[@]} == 0)) || exec lspci "$@"
   fi
 }
 
-# Displays a bounded startup dialog without delaying or owning the launched
-# process. The background watcher always removes its temporary marker.
-show_startup_splash() {
-  local cef_log=$1
-  local hold_seconds=$2
-  local splash_text=$3
-  local -i deadline=$(( BASH_MONOSECONDS + SPLASH_TIMEOUT_SECONDS ))
-  local launcher_pid=$$
-  local marker
-  local splash_pid
-  local -i ui_started=0
-
-  [[ "${STEAM_ASAHI_NO_SPLASH:-0}" == 1 || -t 0 || -t 1 ]] && return
-
-  marker=${ mktemp; }
-  "${YAD}" \
-    --no-buttons \
-    --center \
-    --borders="${SPLASH_BORDER_WIDTH}" \
-    --title=Steam \
-    --window-icon=steam \
-    --skip-taskbar \
-    --timeout="${SPLASH_TIMEOUT_SECONDS}" \
-    --text="${splash_text}" &
-  splash_pid=$!
-
-  (
-    trap 'kill "${splash_pid}" 2>/dev/null || true; rm -f -- "${marker}"' EXIT
-
-    while (( BASH_MONOSECONDS < deadline )); do
-      kill -0 "${launcher_pid}" 2>/dev/null || break
-      if [[ -f "${cef_log}" && "${cef_log}" -nt "${marker}" ]]; then
-        ui_started=1
-        break
-      fi
-      sleep 1
-    done
-
-    (( ui_started == 0 )) || sleep "${hold_seconds}"
-  ) &
-}
-
-# Keeping temporary files beside their destinations makes the final no-copy
-# rename atomic and prevents a silent copy-and-delete fallback.
+# Creates a private staging file on the same filesystem as its destination
+# Arguments: result variable name, destination path
+# Outputs: sets the result variable; returns nonzero if mktemp fails
 create_managed_temporary_path() {
   local result_name=$1
   local destination=$2
@@ -278,131 +231,106 @@ create_managed_temporary_path() {
 
   [[ "${destination_directory}" != "${destination}" ]] \
     || destination_directory=.
-  generated_path=${ mktemp \
+  generated_path=$(mktemp \
     --tmpdir="${destination_directory}" \
-    ".${destination_name}.XXXXXX"; }
+    ".${destination_name}.XXXXXX") || return
   printf -v "${result_name}" '%s' "${generated_path}"
 }
 
-install_managed_file() {
-  local temporary_path
+# Replaces a destination by rename, removing the staging file on failure
+# Arguments: temporary path next to the destination, destination path
+# Returns: nonzero if the rename fails
+commit_managed_temporary_path() {
+  local temporary_path=$1
   local destination=$2
-  local mode=$3
-  local source_path=$1
 
-  create_managed_temporary_path temporary_path "${destination}"
-  if ! install \
-    --mode="${mode}" \
-    --no-target-directory \
-    -- \
-    "${source_path}" \
-    "${temporary_path}"; then
-    rm -f -- "${temporary_path}"
-    return 1
-  fi
-  if ! mv \
-    --force \
-    --no-copy \
-    --no-target-directory \
-    -- \
-    "${temporary_path}" \
-    "${destination}"; then
+  if ! mv --force --no-copy --no-target-directory -- \
+    "${temporary_path}" "${destination}"; then
     rm -f -- "${temporary_path}"
     return 1
   fi
 }
 
-write_managed_value() {
-  local destination=$1
-  local temporary_path
-  local value=$2
-
-  create_managed_temporary_path temporary_path "${destination}"
-  if ! printf '%s\n' "${value}" >"${temporary_path}"; then
-    rm -f -- "${temporary_path}"
-    return 1
-  fi
-  if ! mv \
-    --force \
-    --no-copy \
-    --no-target-directory \
-    -- \
-    "${temporary_path}" \
-    "${destination}"; then
-    rm -f -- "${temporary_path}"
-    return 1
-  fi
-}
-
+# Copies a host symlink target into the writable guest /etc overlay
+# Arguments: name below FHS_ROOT/etc
 materialize_etc_symlink() {
   local file_name=$1
   local path="${FHS_ROOT}/etc/${file_name}"
   local target
+  local temporary_path
 
   [[ -L "${path}" ]] || return 0
   target=$(readlink -f -- "${path}" 2>/dev/null) || return 0
-  rm -f -- "${path}"
-
   if [[ -f "${target}" ]]; then
-    cp --no-target-directory -- "${target}" "${path}"
+    create_managed_temporary_path temporary_path "${path}" || return
+    if ! cp --preserve=mode --no-target-directory -- \
+      "${target}" "${temporary_path}"; then
+      rm -f -- "${temporary_path}"
+      return 1
+    fi
+    commit_managed_temporary_path "${temporary_path}" "${path}"
   elif [[ -d "${target}" ]]; then
-    mkdir -p -- "${path}"
+    rm -f -- "${path}" || return
+    mkdir -p -- "${path}" || return
     cp --archive --one-file-system -- "${target}/." "${path}/"
   fi
 }
 
+# Copies host /etc and prepares the declared writable stubs
+# Globals: FHS_ROOT, ETC_SYMLINKS_TO_MATERIALIZE, ETC_STUB_DIRS, ETC_STUB_FILES
 populate_etc_overlay() {
   local relative_path
 
-  mkdir -p -- "${FHS_ROOT}/etc"
+  mkdir -p -- "${FHS_ROOT}/etc" || return
   cp --archive --one-file-system -- /etc/. "${FHS_ROOT}/etc/" \
     2>/dev/null || true
   for relative_path in "${ETC_SYMLINKS_TO_MATERIALIZE[@]}"; do
-    materialize_etc_symlink "${relative_path}"
+    materialize_etc_symlink "${relative_path}" || return
   done
   for relative_path in "${ETC_STUB_DIRS[@]}"; do
-    mkdir -p -- "${FHS_ROOT}/etc/${relative_path}"
+    mkdir -p -- "${FHS_ROOT}/etc/${relative_path}" || return
   done
   for relative_path in "${ETC_STUB_FILES[@]}"; do
-    rm -f -- "${FHS_ROOT}/etc/${relative_path}"
+    rm -f -- "${FHS_ROOT}/etc/${relative_path}" || return
     install \
       --mode="${ETC_STUB_FILE_MODE}" \
       --no-target-directory \
       -- \
       /dev/null \
-      "${FHS_ROOT}/etc/${relative_path}"
+      "${FHS_ROOT}/etc/${relative_path}" || return
   done
 }
 
-# Mirrors graphics manifests into the native loader and Pressure Vessel paths.
-# Additional arguments are copied into the implicit-layer directory.
+# Mirrors graphics manifests into the native loader and Pressure Vessel paths
+# Arguments: extra manifests to copy into the implicit-layer directory
+# Globals: Vulkan source/destination constants; requires nullglob
 install_vulkan_metadata() {
   local extra_manifest
   local -a manifest_paths
   local source_directory
   local subdirectory
 
-  mkdir -p -- "${VULKAN_SHARE}" "${VULKAN_OVERRIDES}"
+  mkdir -p -- "${VULKAN_SHARE}" "${VULKAN_OVERRIDES}" || return
   for subdirectory in "${VULKAN_SUBDIRECTORIES[@]}"; do
     source_directory="${OPENGL_VULKAN_SHARE}/${subdirectory}"
     [[ -e "${source_directory}" ]] || continue
     rm --force --recursive --one-file-system --preserve-root=all -- \
-      "${VULKAN_SHARE:?}/${subdirectory}"
+      "${VULKAN_SHARE:?}/${subdirectory}" || return
     ln --symbolic --no-target-directory -- \
       "${source_directory}" \
-      "${VULKAN_SHARE}/${subdirectory}"
-    mkdir -p -- "${VULKAN_OVERRIDES}/${subdirectory}"
+      "${VULKAN_SHARE}/${subdirectory}" || return
+    mkdir -p -- "${VULKAN_OVERRIDES}/${subdirectory}" || return
     manifest_paths=("${source_directory}"/*.json)
-    (( ${#manifest_paths[@]} == 0 )) || ln \
+    ((${#manifest_paths[@]} == 0)) || ln \
       --symbolic \
       --force \
       --target-directory="${VULKAN_OVERRIDES}/${subdirectory}" \
       -- \
-      "${manifest_paths[@]}"
+      "${manifest_paths[@]}" || return
   done
 
-  (( $# == 0 )) && return
-  mkdir -p -- "${VULKAN_OVERRIDES}/implicit_layer.d"
+  (($# == 0)) && return
+  mkdir -p -- "${VULKAN_OVERRIDES}/implicit_layer.d" || return
   for extra_manifest in "$@"; do
     [[ -f "${extra_manifest}" ]] || continue
     cp \
@@ -415,14 +343,34 @@ install_vulkan_metadata() {
   done
 }
 
+# Installs a declarative map of relative destinations to symlink targets
+# Arguments: destination root, associative array name, optional source root
+# Returns: nonzero if a link cannot be installed
+install_relative_links() {
+  local root=$1
+  local -n links=$2
+  local source_root=${3:+${3%/}/}
+  local relative_path
+
+  for relative_path in "${!links[@]}"; do
+    ln --symbolic --force --no-target-directory -- \
+      "${source_root}${links[${relative_path}]}" \
+      "${root}/${relative_path}" || return
+  done
+}
+
+# Creates the declared directories below FHS_ROOT
+# Arguments: paths relative to FHS_ROOT
 create_fhs_directories() {
   local relative_path
 
   for relative_path in "$@"; do
-    mkdir -p -- "${FHS_ROOT}/${relative_path}"
+    mkdir -p -- "${FHS_ROOT}/${relative_path}" || return
   done
 }
 
+# Copies host directory contents into the writable guest FHS
+# Arguments: paths relative to /; inaccessible host files are skipped
 copy_host_fhs_directories() {
   local relative_path
 
@@ -434,6 +382,8 @@ copy_host_fhs_directories() {
   done
 }
 
+# Binds the guest FHS directories over the inherited host paths
+# Arguments: paths relative to FHS_ROOT; uses MOUNT_BASE_ARGS
 bind_fhs_directories() {
   local relative_path
 
@@ -442,7 +392,7 @@ bind_fhs_directories() {
       "${MOUNT_BASE_ARGS[@]}" \
       --bind \
       "${FHS_ROOT}/${relative_path}" \
-      "/${relative_path}"
+      "/${relative_path}" || return
   done
 }
 

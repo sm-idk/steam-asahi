@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Configures the ARM64 Steam guest environment and runs the requested command.
+# Configures the ARM64 Steam guest environment and runs the requested command
 
 set -o errexit
 set -o nounset
@@ -14,32 +14,86 @@ readonly COMMON_SCRIPT
 require_configuration_variables NATIVE_LIBRARY_PATH
 
 readonly STEAM_RESTART_DELAY_SECONDS=1
-# Valve's client uses this status to request an in-process relaunch.
+# Valve uses this status to request a relaunch in the existing microVM
 readonly STEAM_RESTART_EXIT_STATUS=42
-readonly -a X86_OVERLAY_LINKS=(
-  bin32
-  bin64
-)
+readonly -a X86_OVERLAY_LINKS=(bin32 bin64)
 
-# Steam updates recreate x86 overlay links under ~/.steam. Preloading those
-# libraries into the ARM64 launch shell fails before Proton can start. The x86
-# client recreates its links when that backend is launched again.
+# Steam updates recreate x86 overlay links, which cannot load into ARM shells
 disable_x86_overlay_preloads() {
   local link_name
 
   for link_name in "${X86_OVERLAY_LINKS[@]}"; do
     if [[ -L "${HOME}/.steam/${link_name}" ]]; then
-      rm -f -- "${HOME}/.steam/${link_name}"
+      rm -f -- "${HOME}/.steam/${link_name}" || return
     fi
   done
 }
 
+# Valve's helper assumes host CPU IDs 2-6 and leaves its path unquoted;
+# retain muvm's affinity because it numbers guest CPUs from zero
+#
+# Reapply only the known upstream command repair after client updates
+# shellcheck disable=SC2016
+repair_webhelper_script() {
+  local client_directory=$1
+  local helper_script="${client_directory}/steamwebhelper.sh"
+  local script_contents
+  local temporary_path
+  local old_command='exec taskset 0x7c $(pwd)/steamwebhelper "$@"'
+  local new_command='exec ./steamwebhelper "$@"'
+  local original_cd='cd $SCRIPTPATH'
+  local replacement_cd='cd -- "$SCRIPTPATH" || exit'
+
+  [[ -f "${helper_script}" ]] || return 0
+  script_contents=$(<"${helper_script}")
+  [[ "${script_contents}" == *"${old_command}"* ]] || return 0
+  script_contents=${script_contents/"${old_command}"/"${new_command}"}
+  script_contents=${script_contents/"${original_cd}"/"${replacement_cd}"}
+
+  create_managed_temporary_path temporary_path "${helper_script}" || return
+  if ! printf '%s\n' "${script_contents}" >"${temporary_path}" \
+    || ! chmod --reference="${helper_script}" -- "${temporary_path}"; then
+    rm -f -- "${temporary_path}"
+    return 1
+  fi
+  commit_managed_temporary_path "${temporary_path}" "${helper_script}"
+}
+
+# Some codec archives ship unversioned files with versioned ELF SONAMEs,
+# so populate their missing aliases without changing the guest's library cache
+repair_client_library_links() {
+  local client_directory=$1
+
+  [[ -d "${client_directory}/libs" ]] || return 0
+  /sbin/ldconfig -n "${client_directory}" "${client_directory}/libs"
+}
+
+# Valve's ARM FFmpeg 8 build references X11 without a DT_NEEDED entry; declare
+# it locally so dlopen does not depend on a prior global X11 load
+repair_client_library_dependencies() {
+  local library_path="$1/libavutil.so.60"
+  local needed_libraries
+  local temporary_path
+
+  [[ -f "${library_path}" ]] || return 0
+  needed_libraries=$(patchelf --print-needed "${library_path}") || return
+  if [[ $'\n'"${needed_libraries}"$'\n' == *$'\nlibX11.so.6\n'* ]]; then
+    return 0
+  fi
+
+  create_managed_temporary_path temporary_path "${library_path}" || return
+  if ! cp --preserve=mode -- "${library_path}" "${temporary_path}" \
+    || ! patchelf --add-needed libX11.so.6 "${temporary_path}"; then
+    rm -f -- "${temporary_path}"
+    return 1
+  fi
+  commit_managed_temporary_path "${temporary_path}" "${library_path}"
+}
+
 main() {
-  local candidate
   local data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
-  local -a path_entries=("${GUEST_PATH_ENTRIES[@]}")
+  local -a path_entries=()
   local -a library_directories
-  local runtime_tools_directory=
   local steamapps_directory="${data_home}/Steam/steamapps/common"
   local status
   local steam_native_directory
@@ -50,24 +104,18 @@ main() {
     'usage: steam-asahi-arm64-guest [--steam] command ' \
     '[arguments...]'
 
-  (( $# > 0 )) || die "${usage}"
+  (($# > 0)) || die "${usage}"
 
-  # The ARM client invokes this bundled service by its unqualified name.
+  # Steam can install the runtime while running, so include its future paths
+  # before the client starts searching for the unqualified launcher service
   for relative_path in "${ARM64_RUNTIME_TOOL_RELATIVE_DIRECTORIES[@]}"; do
-    candidate="${steamapps_directory}/${relative_path}"
-    if [[ -x "${candidate}/steam-runtime-launcher-service" ]]; then
-      runtime_tools_directory=${candidate}
-      break
-    fi
+    path_entries+=("${steamapps_directory}/${relative_path}")
   done
-  if [[ -n "${runtime_tools_directory}" ]]; then
-    path_entries+=("${runtime_tools_directory}")
-  fi
-  prepend_colon_path PATH "${path_entries[@]}"
+  configure_guest_environment "${EUID}" "${path_entries[@]}"
   steam_native_directory="${data_home}/Steam/${ARM64_CLIENT_DIRECTORY_NAME}"
 
   # Prefer Valve's coherent client runtime over same-SONAME Nix libraries, then
-  # fall back to the system Asahi graphics stack and declared native libraries.
+  # fall back to the system Asahi graphics stack and declared native libraries
   library_directories=(
     "${steam_native_directory}"
     "${steam_native_directory}/libs"
@@ -75,30 +123,31 @@ main() {
     "${NATIVE_LIBRARY_PATH}"
   )
   prepend_colon_path LD_LIBRARY_PATH "${library_directories[@]}"
-  export PULSE_SERVER="unix:/run/user/${EUID}/pulse/native"
-  export SDL_AUDIODRIVER=pulseaudio
-  prepend_colon_path XDG_DATA_DIRS "${GUEST_DATA_DIRECTORIES[@]}"
-  export_default_environment COMMON_DRIVER_ENVIRONMENT
   export_default_environment ARM64_DRIVER_ENVIRONMENT
-  export LC_ALL="${C_LOCALE}"
-  export LANG="${C_LOCALE}"
-  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE_PATH}"
-  export TZDIR="${TZDATA_DIRECTORY}"
-  unset -v GIO_EXTRA_MODULES
+
+  if [[ "$1" == '--forward' ]]; then
+    shift
+    (($# > 0)) || die 'the --forward option requires a command'
+    # Another client owns the mutable installation; only send it the argv
+    exec "$@"
+  fi
 
   if [[ "$1" == '--steam' ]]; then
     shift
-    (( $# > 0 )) || die 'the --steam option requires a command'
+    (($# > 0)) || die 'the --steam option requires a command'
 
     while true; do
       disable_x86_overlay_preloads
+      repair_webhelper_script "${steam_native_directory}"
+      repair_client_library_links "${steam_native_directory}"
+      repair_client_library_dependencies "${steam_native_directory}"
       if "$@"; then
         status=0
       else
         status=$?
       fi
 
-      if (( status != STEAM_RESTART_EXIT_STATUS )); then
+      if ((status != STEAM_RESTART_EXIT_STATUS)); then
         return "${status}"
       fi
 
@@ -109,6 +158,8 @@ main() {
     done
   fi
 
+  repair_client_library_links "${steam_native_directory}"
+  repair_client_library_dependencies "${steam_native_directory}"
   exec "$@"
 }
 

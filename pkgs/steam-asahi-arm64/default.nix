@@ -1,21 +1,27 @@
 {
   lib,
+  callPackage,
   stdenv,
   writeShellApplication,
+  writeText,
   symlinkJoin,
   makeDesktopItem,
   buildEnv,
   replaceVars,
   runCommand,
-  shellcheck,
-  writeText,
-  python3,
+  python314,
   steam-arm64-client,
   steam-unwrapped,
   muvm,
   bash,
   coreutils,
   util-linux,
+  gawk,
+  gnugrep,
+  gnused,
+  gnutar,
+  gzip,
+  patchelf,
   brotli,
   bzip2,
   pciutils,
@@ -45,6 +51,7 @@
   expat,
   fontconfig,
   freetype,
+  fribidi,
   gdk-pixbuf,
   glib,
   gtk2,
@@ -59,6 +66,7 @@
   libpulseaudio,
   libpng,
   libsecret,
+  libthai,
   libusb1,
   libudev0-shim,
   libxkbcommon,
@@ -90,13 +98,14 @@
   systemd,
   tzdata,
   vulkan-loader,
+  wayland,
   zlib,
   zstd,
   cpuList ? null,
   memoryMiB ? null,
   vramMiB ? null,
   publishPorts ? [ ],
-  # null uses the default below the caller's original XDG data home.
+  # null uses the default below the caller's original XDG data home
   customSteamHomeDir ? null,
   extraEnv ? (import ../environments.nix).arm64,
 }:
@@ -106,15 +115,15 @@ assert lib.asserts.assertMsg (
   || (
     builtins.isList cpuList
     && cpuList != [ ]
-    && builtins.all (cpu: builtins.isInt cpu && cpu >= 0 && cpu <= 65535) cpuList
-    && builtins.length cpuList == builtins.length (lib.lists.unique cpuList)
+    && lib.lists.all lib.types.ints.u16.check cpuList
+    && lib.lists.unique cpuList == cpuList
   )
 ) "steam-asahi-arm64: cpuList must be null or a non-empty list of unique 16-bit CPU IDs";
 assert lib.asserts.assertMsg (
-  memoryMiB == null || (builtins.isInt memoryMiB && memoryMiB > 0)
+  memoryMiB == null || lib.types.ints.positive.check memoryMiB
 ) "steam-asahi-arm64: memoryMiB must be null or a positive integer";
 assert lib.asserts.assertMsg (
-  vramMiB == null || (builtins.isInt vramMiB && vramMiB > 0)
+  vramMiB == null || lib.types.ints.positive.check vramMiB
 ) "steam-asahi-arm64: vramMiB must be null or a positive integer";
 assert lib.asserts.assertMsg (
   builtins.isAttrs extraEnv && lib.lists.all builtins.isString (builtins.attrValues extraEnv)
@@ -127,13 +136,27 @@ assert lib.asserts.assertMsg (
 ) "steam-asahi-arm64: customSteamHomeDir must be null or a non-empty string";
 
 let
-  commonScriptSource = ../scripts/common.sh;
-  commonScript = writeText "steam-asahi-common.sh" (builtins.readFile commonScriptSource);
+  scripts = import ../scripts {
+    inherit
+      lib
+      bash
+      writeText
+      writeShellApplication
+      ;
+  };
+  muvmArguments = scripts.muvmArguments {
+    inherit
+      cpuList
+      memoryMiB
+      vramMiB
+      publishPorts
+      ;
+  };
 
   # Steam's client runtime is not sufficient on its own: Pressure Vessel also
   # imports host libraries and runs host-side probes. Keep this list explicit,
   # like nixpkgs' Steam runtime, so every guest dependency is visible and
-  # independently overridable through callPackage.
+  # independently overridable through callPackage
   nativeLibraries = [
     glibc
     stdenv.cc.cc.lib
@@ -149,6 +172,10 @@ let
     expat
     fontconfig
     freetype
+    # SDL loads these by SONAME instead of relying on linked dependencies
+    fribidi
+    libthai
+    wayland
     gdk-pixbuf
     glib
     gtk2
@@ -160,17 +187,17 @@ let
     libGL
     libdrm
     libgbm
-    # CEF probes libpci in addition to invoking the lspci shim.
+    # CEF probes libpci in addition to invoking the lspci shim
     pciutils
     libpulseaudio
     libpng
     libsecret
     libusb1
-    # SDL3 and CEF still probe the pre-udev-1 compatibility SONAME.
+    # SDL3 and CEF still probe the pre-udev-1 compatibility SONAME
     libudev0-shim
     libvpx
     # Valve's bundled libpulsecommon and libcurl retain these distro-facing
-    # dependencies instead of shipping private copies.
+    # dependencies instead of shipping private copies
     libasyncns
     libsndfile
     libssh2
@@ -202,7 +229,7 @@ let
     SDL2
     speechd-minimal
     systemd
-    # CEF links these directly even when hardware decoding is unavailable.
+    # CEF links these directly even when hardware decoding is unavailable
     libva
     libvdpau
     vulkan-loader
@@ -213,55 +240,41 @@ let
     name = "steam-arm64-native-runtime";
     paths = map lib.attrsets.getLib nativeLibraries;
     pathsToLink = [ "/lib" ];
-    # Several packages expose compatibility aliases for the same SONAME. The
-    # ordered list above deliberately selects the first provider.
-    ignoreCollisions = true;
   };
 
-  # Copy the desktop icon so the native launcher does not retain the complete
-  # x86 Steam client in its runtime closure.
-  steamIcons = runCommand "steam-asahi-icons-${steam-unwrapped.version}" { } ''
-    mkdir -p "$out/share"
-    cp -R -- ${steam-unwrapped}/share/icons "$out/share/"
-  '';
-
-  renderShell =
-    variables: path:
-    lib.strings.concatStringsSep "\n" [
-      (lib.strings.toShellVars variables)
-      (builtins.readFile path)
-    ];
-
-  lspciShim = writeShellApplication {
-    inheritPath = false;
+  lspciShim = scripts.application {
+    source = ./scripts/lspci.sh;
     name = "steam-asahi-lspci";
     runtimeInputs = [ pciutils ];
-    text = renderShell { COMMON_SCRIPT = commonScript; } ./scripts/lspci.sh;
   };
 
-  initScript = writeShellApplication {
-    inheritPath = false;
+  initScript = scripts.application {
+    source = ./scripts/init.sh;
     name = "steam-asahi-arm64-init";
     runtimeInputs = [
       coreutils
       util-linux
     ];
-    text = renderShell {
+    configuration = {
       BASH_BIN = lib.meta.getExe bash;
-      COMMON_SCRIPT = commonScript;
       COREUTILS_BIN = "${lib.attrsets.getBin coreutils}/bin";
-      EXTRA_COMMAND_DIRS = [
-        "${lib.attrsets.getBin dbus}/bin"
-        "${lib.attrsets.getBin file}/bin"
-        "${lib.attrsets.getBin usbutils}/bin"
-        "${lib.attrsets.getBin which}/bin"
-        "${lib.attrsets.getBin xz}/bin"
+      EXTRA_COMMAND_DIRS = map (package: "${lib.attrsets.getBin package}/bin") [
+        gawk
+        gnugrep
+        gnused
+        gnutar
+        gzip
+        dbus
+        file
+        usbutils
+        which
+        xz
       ];
       GETOPT = lib.meta.getExe' util-linux "getopt";
       GLIBC_BIN = "${lib.attrsets.getBin glibc}/bin";
       GLIBC_I18N = "${glibc}/share/i18n";
       LD_LINUX = "${lib.attrsets.getLib glibc}/lib/ld-linux-aarch64.so.1";
-      LDCONFIG = lib.meta.getExe' (lib.attrsets.getBin glibc) "ldconfig";
+      LDCONFIG = lib.meta.getExe' glibc "ldconfig";
       LSB_RELEASE = lib.meta.getExe lsb-release;
       LSOF = lib.meta.getExe lsof;
       LSPCI = lib.meta.getExe lspciShim;
@@ -273,28 +286,33 @@ let
       XDG_OPEN = lib.meta.getExe' xdg-utils "xdg-open";
       XDG_USER_DIR = lib.meta.getExe' xdg-user-dirs "xdg-user-dir";
       ZENITY = lib.meta.getExe yad;
-    } ./scripts/init.sh;
+    };
   };
 
-  guestLauncher = writeShellApplication {
-    inheritPath = false;
+  guestLauncher = scripts.application {
+    source = ./scripts/guest.sh;
     name = "steam-asahi-arm64-guest";
-    runtimeInputs = [ coreutils ];
+    runtimeInputs = [
+      coreutils
+      patchelf
+    ];
     runtimeEnv = extraEnv;
-    text = renderShell {
-      COMMON_SCRIPT = commonScript;
+    configuration = {
       NATIVE_LIBRARY_PATH = "${nativeRuntime}/lib";
-    } ./scripts/guest.sh;
+    };
   };
 
-  protonConfigurator = writeShellApplication {
-    inheritPath = false;
-    name = "steam-asahi-arm64-configure-proton";
-    runtimeInputs = [ (python3.withPackages (packages: [ packages.vdf ])) ];
-    text = ''
-      exec python3 ${./scripts/configure-proton.py} "$@"
-    '';
-  };
+  protonConfigurator =
+    let
+      python = python314.withPackages (packages: [ packages.vdf ]);
+    in
+    writeShellApplication {
+      inheritPath = false;
+      name = "steam-asahi-arm64-configure-proton";
+      text = ''
+        exec ${lib.meta.getExe python} ${./scripts/configure-proton.py} "$@"
+      '';
+    };
 
   armProton = {
     compatibilityToolDirectory = "steam-asahi-proton-11-arm64";
@@ -309,71 +327,23 @@ let
     inherit (armProton) displayName toolName;
   };
 
-  protonScriptsCheck =
-    runCommand "steam-asahi-arm64-proton-scripts-shellcheck"
-      {
-        nativeBuildInputs = [ shellcheck ];
-      }
-      ''
-        shellcheck --shell=sh \
-          ${./proton/run-proton} \
-          ${./proton/steam-asahi-proton}
-        touch "$out"
-      '';
-
-  sourceScriptsCheck =
-    runCommand "steam-asahi-arm64-shell-scripts-test"
-      {
-        nativeBuildInputs = [
-          bash
-          coreutils
-          shellcheck
-          util-linux
-        ];
-      }
-      ''
-        shellcheck \
-          ${commonScriptSource} \
-          ${./scripts/guest.sh} \
-          ${./scripts/init.sh} \
-          ${./scripts/launcher.sh} \
-          ${./scripts/lspci.sh} \
-          ${./tests/scripts.sh}
-        bash ${./tests/scripts.sh} ${../..}
-        touch "$out"
-      '';
-
-  launcher = writeShellApplication {
-    inheritPath = false;
-    name = "steam-asahi";
+  launcher = (callPackage ../scripts/launcher.nix { }) {
     runtimeInputs = [
       coreutils
-      util-linux
-      yad
     ];
-    text = renderShell {
+    configuration = muvmArguments // {
+      BACKEND = "arm64";
       CLIENT_BOOTSTRAP = "${steam-arm64-client}/share/steam-arm64-client/steamrtarm64";
       CLIENT_UPDATE_CHANNEL = steam-arm64-client.updateChannel;
       COMPATIBILITY_TOOL_DIRECTORY = armProton.compatibilityToolDirectory;
       COMPATIBILITY_TOOL_VDF = "${compatibilityToolVdf}";
-      COMMON_SCRIPT = commonScript;
-      CPU_ARGS = lib.lists.optionals (cpuList != null) [
-        "--cpu-list=${lib.strings.concatMapStringsSep "," toString cpuList}"
-      ];
       CUSTOM_STEAM_HOME_DIR = if customSteamHomeDir == null then "" else customSteamHomeDir;
       DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;
-      ENV_BIN = lib.meta.getExe' coreutils "env";
-      FLOCK = lib.meta.getExe' util-linux "flock";
       GUEST_LAUNCHER = lib.meta.getExe guestLauncher;
       HOST_LIBRARIES = "${nativeRuntime}/lib";
       INIT_SCRIPT = lib.meta.getExe initScript;
-      MEMORY_ARGS = lib.lists.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
       MUVM = lib.meta.getExe muvm;
-      NETWORK_ARGS = lib.lists.concatMap (specification: [
-        "--publish"
-        specification
-      ]) publishPorts;
       PROTON_DIRECTORY = armProton.protonDirectory;
       PROTON_CONFIGURATOR = lib.meta.getExe protonConfigurator;
       PROTON_RUNNER = "${./proton/run-proton}";
@@ -382,54 +352,38 @@ let
       RUNTIME_APP_ID = armProton.runtimeAppId;
       RUNTIME_DIRECTORY = armProton.runtimeDirectory;
       TOOL_MANIFEST = "${./proton/toolmanifest.vdf}";
-      VRAM_ARGS = lib.lists.optionals (vramMiB != null) [ "--vram=${toString vramMiB}" ];
       YAD = lib.meta.getExe yad;
-    } ./scripts/launcher.sh;
+    };
 
     meta = {
       description = "Native ARM64 Steam beta launcher for 16K-page Asahi systems via muvm";
       homepage = "https://github.com/sm-idk/steam-asahi";
       # The wrapper source has no license. The installable product also closes
-      # over and launches Valve's unfree redistributable Steam client.
+      # over and launches Valve's unfree redistributable Steam client
       license = lib.licenses.unfree;
       platforms = [ "aarch64-linux" ];
       mainProgram = "steam-asahi";
     };
   };
 
-  desktopItem = makeDesktopItem {
-    name = "steam-asahi";
+in
+(callPackage ../mk-launcher-package.nix {
+  inherit
+    makeDesktopItem
+    runCommand
+    steam-unwrapped
+    symlinkJoin
+    ;
+})
+  {
+    pname = "steam-asahi-arm64";
+    inherit (steam-arm64-client) version;
+    inherit launcher;
     desktopName = "Steam (Asahi, ARM64 beta)";
     comment = "Native ARM64 Steam public beta in a 4K-page microVM";
-    exec = "steam-asahi %U";
-    icon = "steam";
-    startupNotify = true;
-    categories = [
-      "Game"
-      "Network"
-    ];
-    mimeTypes = [
-      "x-scheme-handler/steam"
-      "x-scheme-handler/steamlink"
-    ];
-  };
-in
-symlinkJoin {
-  pname = "steam-asahi-arm64";
-  inherit (steam-arm64-client) version;
-  paths = [
-    launcher
-    desktopItem
-    steamIcons
-  ];
-  inherit (launcher) meta;
-  passthru = {
-    inherit customSteamHomeDir steam-arm64-client;
-    backend = "arm64";
-    proton = armProton;
-    tests = {
-      protonScripts = protonScriptsCheck;
-      sourceScripts = sourceScriptsCheck;
+    passthru = {
+      inherit customSteamHomeDir nativeRuntime steam-arm64-client;
+      backend = "arm64";
+      proton = armProton;
     };
-  };
-}
+  }
