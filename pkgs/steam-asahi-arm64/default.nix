@@ -153,6 +153,10 @@ let
       ;
   };
 
+  gtk2Appindicator = callPackage ./gtk2-appindicator.nix {
+    inherit gtk2 libappindicator;
+  };
+
   # Steam's client runtime is not sufficient on its own: Pressure Vessel also
   # imports host libraries and runs host-side probes. Keep this list explicit,
   # like nixpkgs' Steam runtime, so every guest dependency is visible and
@@ -182,7 +186,7 @@ let
     gtk3
     ibus
     krb5
-    libappindicator
+    gtk2Appindicator
     libcap
     libGL
     libdrm
@@ -382,7 +386,12 @@ in
     desktopName = "Steam (Asahi, ARM64 beta)";
     comment = "Native ARM64 Steam public beta in a 4K-page microVM";
     passthru = {
-      inherit customSteamHomeDir nativeRuntime steam-arm64-client;
+      inherit
+        customSteamHomeDir
+        gtk2Appindicator
+        nativeRuntime
+        steam-arm64-client
+        ;
       backend = "arm64";
       proton = armProton;
     };
