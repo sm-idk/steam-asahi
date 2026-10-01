@@ -285,8 +285,12 @@
         final: prev:
         let
           fexOverrideVersion = "2609";
+          libkrunOverrideVersion = "1.19.6";
+          libkrunfwOverrideVersion = "5.6.2";
           muvmFexFixVersion = "0.6.1";
           nixpkgsFexIsCurrent = prev.lib.strings.versionAtLeast prev.fex.version fexOverrideVersion;
+          nixpkgsLibkrunIsCurrent = prev.lib.strings.versionAtLeast prev.libkrun.version libkrunOverrideVersion;
+          nixpkgsLibkrunfwIsCurrent = prev.lib.strings.versionAtLeast prev.libkrunfw.version libkrunfwOverrideVersion;
           nixpkgsMuvmHasFexFix = prev.lib.strings.versionAtLeast prev.muvm.version muvmFexFixVersion;
           overriddenFex = prev.fex.overrideAttrs (old: {
             version = fexOverrideVersion;
@@ -306,11 +310,48 @@
                 --replace-fail 'FEXInterpreter' 'FEX'
             '';
           });
+          overriddenLibkrun = prev.libkrun.overrideAttrs (
+            finalAttrs: _old: {
+              version = libkrunOverrideVersion;
+              src = prev.fetchFromGitHub {
+                owner = "libkrun";
+                repo = "libkrun";
+                tag = "v${finalAttrs.version}";
+                hash = "sha256-h37J1J/oe4PpY5Xtv8Js/wEA7av9M/VK4OTY1svK++0=";
+              };
+              cargoDeps = prev.rustPlatform.fetchCargoVendor {
+                inherit (finalAttrs) src;
+                hash = "sha256-SPlozqdmX0khawoFjZrqYjQ5qDY4tSVa7gpehYHUTz8=";
+              };
+            }
+          );
+          overriddenLibkrunfw = prev.libkrunfw.overrideAttrs (
+            finalAttrs: _old: {
+              version = libkrunfwOverrideVersion;
+              src = prev.fetchFromGitHub {
+                owner = "libkrun";
+                repo = "libkrunfw";
+                tag = "v${finalAttrs.version}";
+                hash = "sha256-HklZgZPjXe+eAGzRulEwRR1eo83tGlZBTRooCv0/ADU=";
+              };
+              kernelSrc = prev.fetchurl {
+                url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.109.tar.xz";
+                hash = "sha256-VITlUqM04VAZ9K66ieW1jwRlHPL04k4E3p8VLxw44/o=";
+              };
+            }
+          );
         in
         {
           steam-arm64-client = final.callPackage ./pkgs/steam-arm64-client { };
           steam-asahi-arm64 = final.callPackage ./pkgs/steam-asahi-arm64 { };
           steam-asahi = final.callPackage ./pkgs/steam-asahi { };
+
+          libkrun = prev.lib.trivial.warnIf nixpkgsLibkrunIsCurrent ''
+            libkrun >= ${libkrunOverrideVersion} is now in nixpkgs; remove the libkrun override.
+          '' (if nixpkgsLibkrunIsCurrent then prev.libkrun else overriddenLibkrun);
+          libkrunfw = prev.lib.trivial.warnIf nixpkgsLibkrunfwIsCurrent ''
+            libkrunfw >= ${libkrunfwOverrideVersion} is now in nixpkgs; remove the libkrunfw override.
+          '' (if nixpkgsLibkrunfwIsCurrent then prev.libkrunfw else overriddenLibkrunfw);
 
           fex = prev.lib.trivial.warnIf nixpkgsFexIsCurrent ''
             FEX >= ${fexOverrideVersion} is now in nixpkgs; remove the FEX override.
