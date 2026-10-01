@@ -2,13 +2,35 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  python3,
+  python314,
   runCommand,
   unzip,
   writeText,
 }:
 
 let
+  # Repair archive paths and permissions from one declarative payload manifest
+  clientLinks = {
+    "libcurl.so" = "libcurl.so.4.8.0";
+    "libnghttp2.so" = "libnghttp2.so.14.20.1";
+    "libnghttp2.so.14" = "libnghttp2.so.14.20.1";
+  };
+  clientExecutables = [
+    "fossilize_replay"
+    "gameoverlayui"
+    "gldriverquery"
+    "reaper"
+    "steam"
+    "steam_monitor"
+    "steamerrorreporter"
+    "steamsysinfo"
+    "steamwebhelper"
+    "steamwebhelper.sh"
+    "streaming_client"
+    "vgui_panel_zoo"
+    "vulkandriverquery"
+  ];
+
   updaterFixtureManifest = writeText "steam-arm64-client-updater-manifest" ''
     "linuxarm64"
     {
@@ -80,46 +102,34 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p "$out/share/steam-arm64-client"
-    unzip -q "$src" -d "$out/share/steam-arm64-client"
+    root="$out/share/steam-arm64-client"
+    client="$root/steamrtarm64"
+    ${lib.toShellVars {
+      STEAM_CLIENT_LINKS = clientLinks;
+      STEAM_CLIENT_EXECUTABLES = clientExecutables;
+    }}
+    mkdir -p -- "$root"
+    unzip -q "$src" -d "$root"
 
     # Valve's zip contains three symlink entries whose directory separator is
     # encoded as a literal backslash. Info-ZIP consequently creates separate
-    # directories named `steamrtarm64\\libs` and `steamrtarm64\\swiftshader`.
-    # Recreate the intended links in the real directory and remove the artifacts.
-    root="$out/share/steam-arm64-client"
-    rm -f \
-      "$root/"'steamrtarm64\libs\libcurl.so' \
-      "$root/"'steamrtarm64\libs\libnghttp2.so' \
-      "$root/"'steamrtarm64\libs\libnghttp2.so.14'
-    rmdir \
+    # directories named `steamrtarm64\\libs` and `steamrtarm64\\swiftshader`
+    # Recreate the intended links in the real directory and remove the artifacts
+    for name in "''${!STEAM_CLIENT_LINKS[@]}"; do
+      rm -f -- "$root/"'steamrtarm64\libs\'"$name"
+      ln --symbolic --no-target-directory -- \
+        "''${STEAM_CLIENT_LINKS[$name]}" "$client/libs/$name"
+    done
+    rmdir -- \
       "$root/"'steamrtarm64\libs' \
       "$root/"'steamrtarm64\swiftshader'
-    ln -s libcurl.so.4.8.0 \
-      "$out/share/steam-arm64-client/steamrtarm64/libs/libcurl.so"
-    ln -s libnghttp2.so.14.20.1 \
-      "$out/share/steam-arm64-client/steamrtarm64/libs/libnghttp2.so"
-    ln -s libnghttp2.so.14.20.1 \
-      "$out/share/steam-arm64-client/steamrtarm64/libs/libnghttp2.so.14"
 
     # The CDN zip is produced with DOS attributes and carries no Unix execute
     # bits. Mark the actual programs/scripts executable while leaving data and
-    # shared libraries non-executable.
-    client="$out/share/steam-arm64-client/steamrtarm64"
-    chmod a+x \
-      "$client/fossilize_replay" \
-      "$client/gameoverlayui" \
-      "$client/gldriverquery" \
-      "$client/reaper" \
-      "$client/steam" \
-      "$client/steam_monitor" \
-      "$client/steamerrorreporter" \
-      "$client/steamsysinfo" \
-      "$client/steamwebhelper" \
-      "$client/steamwebhelper.sh" \
-      "$client/streaming_client" \
-      "$client/vgui_panel_zoo" \
-      "$client/vulkandriverquery"
+    # shared libraries non-executable
+    for name in "''${STEAM_CLIENT_EXECUTABLES[@]}"; do
+      chmod a+x -- "$client/$name"
+    done
 
     runHook postInstall
   '';
@@ -147,11 +157,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       updateScript =
         runCommand "steam-arm64-client-update-script-test"
           {
-            nativeBuildInputs = [ python3 ];
+            nativeBuildInputs = [ python314 ];
           }
           ''
             cp ${updaterFixturePackage} package.nix
-            python3 ${./update.py} \
+            python3.14 ${./update.py} \
               --manifest-file ${updaterFixtureManifest} \
               package.nix
             diff -u ${updaterExpectedPackage} package.nix
