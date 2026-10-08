@@ -1,6 +1,6 @@
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = []
+# dependencies = ["boltons", "msgspec"]
 # ///
 
 """Install isolated ARM64 Steam state and launch it through muvm"""

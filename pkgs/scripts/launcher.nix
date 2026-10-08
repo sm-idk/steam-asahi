@@ -10,6 +10,10 @@
   meta,
 }:
 let
+  python = python314.withPackages (packages: [
+    packages.boltons
+    packages.msgspec
+  ]);
   configFile = writeText "steam-asahi-launcher.json" (builtins.toJSON configuration);
 in
 writeShellApplication {
@@ -17,6 +21,6 @@ writeShellApplication {
   inheritPath = false;
   name = "steam-asahi";
   text = ''
-    exec ${lib.meta.getExe python314} -I ${./launcher}/main.py ${configFile} "$@"
+    exec ${lib.meta.getExe python} -I ${./launcher}/main.py ${configFile} "$@"
   '';
 }

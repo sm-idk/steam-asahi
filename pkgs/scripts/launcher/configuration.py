@@ -1,18 +1,13 @@
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = []
+# dependencies = ["boltons", "msgspec"]
 # ///
 
 """Validate Nix's JSON at the boundary before preparing launcher state"""
 
-from typing import (
-    Literal,
-    TypedDict,
-    cast,
-    get_args,
-    get_origin,
-    get_type_hints,
-)
+from typing import Literal, TypedDict, cast
+
+import msgspec
 
 from common import LauncherError
 
@@ -72,26 +67,9 @@ def parse_configuration(value: object) -> Configuration:
     if not isinstance(backend, str) or backend not in schemas:
         raise LauncherError(f"unsupported launcher BACKEND: {backend!r}")
 
-    # The TypedDict is also the runtime schema, so required fields stay in sync
-    for name, annotation in get_type_hints(schemas[backend]).items():
-        if name not in value:
-            raise LauncherError(f"missing launcher configuration field: {name}")
-        field = value[name]
-        if annotation is str:
-            valid = isinstance(field, str)
-        elif annotation == list[str]:
-            valid = isinstance(field, list) and all(
-                isinstance(item, str) for item in field
-            )
-        elif get_origin(annotation) is Literal:
-            valid = field in get_args(annotation)
-        else:
-            raise TypeError(
-                f"unsupported configuration annotation: {annotation}"
-            )
-        if not valid:
-            raise LauncherError(
-                f"invalid launcher configuration field {name}: "
-                f"expected {annotation}"
-            )
+    try:
+        msgspec.convert(value, type=schemas[backend], strict=True)
+    except msgspec.ValidationError as error:
+        raise LauncherError(str(error)) from error
+    # Retain unknown keys too: the original configuration identifies the VM
     return cast(Configuration, value)

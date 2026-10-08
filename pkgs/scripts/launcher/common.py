@@ -1,6 +1,6 @@
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = []
+# dependencies = ["boltons"]
 # ///
 
 """Host file and process helpers shared by both Steam launchers"""
@@ -15,12 +15,13 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
+from uuid import uuid4
+
+from boltons.fileutils import atomic_save
 
 if TYPE_CHECKING:
     from configuration import LauncherConfiguration
@@ -67,31 +68,23 @@ def copy_bootstrap(source: str, destination: Path) -> None:
     run("chmod", "-RP", "u+rwX", "--", destination)
 
 
-@contextmanager
-def managed_temporary_path(destination: Path) -> Iterator[Path]:
-    # A sibling temporary file allows replacement with a single rename
-    with tempfile.NamedTemporaryFile(
-        dir=destination.parent,
-        prefix=f".{destination.name}.",
-        delete_on_close=False,
-    ) as source:
-        source.close()
-        temporary = Path(source.name)
-        yield temporary
-        temporary.replace(destination)
-
-
 def install_managed_file(
     source: str | Path, destination: Path, mode: int
 ) -> None:
-    with managed_temporary_path(destination) as temporary:
-        shutil.copyfile(source, temporary)
-        temporary.chmod(mode)
+    with (
+        Path(source).open("rb") as source_file,
+        atomic_save(
+            str(destination), file_perms=mode, part_file=f".{uuid4().hex}"
+        ) as destination_file,
+    ):
+        shutil.copyfileobj(source_file, destination_file)
 
 
 def write_managed_value(destination: Path, value: str) -> None:
-    with managed_temporary_path(destination) as temporary:
-        temporary.write_text(f"{value}\n", encoding="utf-8")
+    with atomic_save(
+        str(destination), file_perms=0o600, part_file=f".{uuid4().hex}"
+    ) as destination_file:
+        destination_file.write(f"{value}\n".encode("utf-8"))
 
 
 def replace_symlink(target: str | Path, destination: Path) -> None:

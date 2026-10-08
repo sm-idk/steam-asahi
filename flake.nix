@@ -118,9 +118,12 @@
               inherit (testPkgs)
                 bash
                 coreutils
-                python314
                 util-linux
                 ;
+              python314 = testPkgs.python314.withPackages (packages: [
+                packages.boltons
+                packages.msgspec
+              ]);
             };
           }
           ''

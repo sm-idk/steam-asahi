@@ -1,6 +1,6 @@
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = []
+# dependencies = ["boltons", "msgspec"]
 # ///
 
 """Prepare FEX and Steam state, then launch Steam through muvm and FEX"""
