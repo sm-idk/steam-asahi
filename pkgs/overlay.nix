@@ -3,6 +3,7 @@ let
   fexOverrideVersion = "2610";
   libkrunOverrideVersion = "1.19.6";
   libkrunfwOverrideVersion = "5.6.2";
+  libkrunfwKernelVersion = "6.12.112";
   nixpkgsFexIsCurrent = prev.lib.strings.versionAtLeast prev.fex.version fexOverrideVersion;
   nixpkgsLibkrunIsCurrent = prev.lib.strings.versionAtLeast prev.libkrun.version libkrunOverrideVersion;
   nixpkgsLibkrunfwIsCurrent = prev.lib.strings.versionAtLeast prev.libkrunfw.version libkrunfwOverrideVersion;
@@ -30,7 +31,7 @@ let
     }
   );
   overriddenLibkrunfw = prev.libkrunfw.overrideAttrs (
-    finalAttrs: _old: {
+    finalAttrs: old: {
       version = libkrunfwOverrideVersion;
       src = prev.fetchFromGitHub {
         owner = "libkrun";
@@ -39,9 +40,10 @@ let
         hash = "sha256-HklZgZPjXe+eAGzRulEwRR1eo83tGlZBTRooCv0/ADU=";
       };
       kernelSrc = prev.fetchurl {
-        url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.112.tar.xz";
+        url = "mirror://kernel/linux/kernel/v6.x/linux-${libkrunfwKernelVersion}.tar.xz";
         hash = "sha256-Fk3J0fbJPGGhXh8HHEg3m0Z/KxfEacznIjRxloII7QM=";
       };
+      makeFlags = (old.makeFlags or [ ]) ++ [ "KERNEL_VERSION=linux-${libkrunfwKernelVersion}" ];
     }
   );
 in
