@@ -1,6 +1,6 @@
 final: prev:
 let
-  fexOverrideVersion = "2609";
+  fexOverrideVersion = "2610";
   libkrunOverrideVersion = "1.19.6";
   libkrunfwOverrideVersion = "5.6.2";
   nixpkgsFexIsCurrent = prev.lib.strings.versionAtLeast prev.fex.version fexOverrideVersion;
@@ -10,7 +10,7 @@ let
     version = fexOverrideVersion;
     src = old.src.overrideAttrs (_: {
       rev = "refs/tags/FEX-${fexOverrideVersion}";
-      hash = "sha256-L6dy8FBT/4mHBKq/nifdYREIb6C/eG8Ph6FP9ET4Syc=";
+      hash = "sha256-woTzApJKXAkdxIRMhxu9UO0eXGMJseMUUnhZ4Vb5zgA=";
     });
     doCheck = false;
   });
