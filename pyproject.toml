@@ -2,13 +2,16 @@
 name = "steam-asahi"
 version = "0.0.0"
 requires-python = "==3.14.*"
-dependencies = []
+dependencies = [
+  "boltons>=25,<27",
+  "msgspec>=0.21.1,<0.23",
+  "vdf>=3.4,<4",
+]
 
 [dependency-groups]
 dev = [
   "ruff>=0.16.10,<0.17",
   "ty>=0.0.85,<0.1",
-  "vdf>=3.4,<4",
 ]
 
 [tool.uv]
