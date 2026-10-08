@@ -39,8 +39,8 @@ let
         hash = "sha256-HklZgZPjXe+eAGzRulEwRR1eo83tGlZBTRooCv0/ADU=";
       };
       kernelSrc = prev.fetchurl {
-        url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.109.tar.xz";
-        hash = "sha256-VITlUqM04VAZ9K66ieW1jwRlHPL04k4E3p8VLxw44/o=";
+        url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.112.tar.xz";
+        hash = "sha256-Fk3J0fbJPGGhXh8HHEg3m0Z/KxfEacznIjRxloII7QM=";
       };
     }
   );
