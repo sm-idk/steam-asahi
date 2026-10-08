@@ -1,9 +1,9 @@
 #!/usr/bin/env nix-shell
-#!nix-shell --pure -i python3.14 -p python314 cacert
+#!nix-shell --pure -i python3.14 -p 'python314.withPackages (ps: [ ps.boltons ps.vdf ])' cacert
 
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = []
+# dependencies = ["boltons", "vdf"]
 # ///
 
 """Update the pinned ARM64 Steam client from Valve's public-beta manifest"""
@@ -13,11 +13,13 @@ from __future__ import annotations
 import argparse
 import base64
 import re
-import stat
-import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
+
+import vdf
+from boltons.fileutils import atomic_save
 
 MANIFEST_URL = "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64"
 DOWNLOAD_BASE_URL = "https://client-update.fastly.steamstatic.com/"
@@ -65,27 +67,25 @@ def fetch_release(manifest_file: Path | None) -> Release:
     else:
         manifest = manifest_file.read_text(encoding="utf-8")
 
-    version_match = re.search(
-        r'^\s*"version"\s*"(\d+)"', manifest, re.MULTILINE
-    )
-    payload_match = re.search(
-        r'"bins_linuxarm64_linuxarm64"\s*\{'
-        r'.*?^\s*"file"\s*"([^"]+)"'
-        r'.*?^\s*"sha2"\s*"([0-9a-f]{64})"',
-        manifest,
-        re.MULTILINE | re.DOTALL,
-    )
-    if version_match is None or payload_match is None:
+    try:
+        release = vdf.loads(manifest)["linuxarm64"]
+        version = release["version"]
+        payload = release["bins_linuxarm64_linuxarm64"]
+        filename, sha256_hex = payload["file"], payload["sha2"]
+        if not (
+            re.fullmatch(r"\d+", version)
+            and filename
+            and re.fullmatch(r"[0-9a-f]{64}", sha256_hex)
+        ):
+            raise ValueError("invalid release fields")
+        sha256_sri = (
+            "sha256-" + base64.b64encode(bytes.fromhex(sha256_hex)).decode()
+        )
+        return Release(version, DOWNLOAD_BASE_URL + filename, sha256_sri)
+    except (KeyError, SyntaxError, TypeError, ValueError) as error:
         raise SystemExit(
             "Valve's ARM64 Steam manifest has an unrecognized format"
-        )
-
-    version = version_match.group(1)
-    filename, sha256_hex = payload_match.groups()
-    sha256_sri = (
-        "sha256-" + base64.b64encode(bytes.fromhex(sha256_hex)).decode()
-    )
-    return Release(version, DOWNLOAD_BASE_URL + filename, sha256_sri)
+        ) from error
 
 
 def update_derivation(source: str, release: Release) -> str:
@@ -136,13 +136,8 @@ def main() -> None:
         print(f"steam-arm64-client {release.version} is already up to date")
         return
 
-    with tempfile.TemporaryDirectory(
-        dir=package_file.parent, prefix=f".{package_file.name}."
-    ) as directory:
-        temporary_file = Path(directory) / package_file.name
-        temporary_file.write_text(updated, encoding="utf-8")
-        temporary_file.chmod(stat.S_IMODE(package_file.stat().st_mode))
-        temporary_file.replace(package_file)
+    with atomic_save(str(package_file), part_file=f".{uuid4().hex}") as package:
+        package.write(updated.encode("utf-8"))
     print(f"updated steam-arm64-client to {release.version}")
 
 

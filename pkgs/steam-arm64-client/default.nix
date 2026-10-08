@@ -2,13 +2,17 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  python314,
+  python314Packages,
   runCommand,
   unzip,
   writeText,
 }:
 
 let
+  python314 = python314Packages.python.withPackages (packages: [
+    packages.boltons
+    packages.vdf
+  ]);
   # Repair archive paths and permissions from one declarative payload manifest
   clientLinks = {
     "libcurl.so" = "libcurl.so.4.8.0";
