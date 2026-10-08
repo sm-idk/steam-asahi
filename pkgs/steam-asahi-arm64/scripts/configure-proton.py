@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.14
 # /// script
 # requires-python = "==3.14.*"
-# dependencies = ["vdf"]
+# dependencies = ["boltons", "vdf"]
 # ///
 
 """Set one Steam application to use the managed ARM64 Proton tool"""
@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import argparse
 import shutil
-import stat
-import tempfile
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 import vdf
+from boltons.fileutils import atomic_save
 
 type VdfObject = dict[str, str | VdfObject]
 
@@ -87,18 +87,10 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
         if not backup_path.exists():
             shutil.copy2(config_path, backup_path)
 
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=config_path.parent,
-            prefix=f".{config_path.name}.",
-            delete_on_close=False,
+        with atomic_save(
+            str(config_path), part_file=f".{uuid4().hex}"
         ) as config_file:
-            temporary_path = Path(config_file.name)
-            vdf.dump(config, config_file, pretty=True)
-            config_file.close()
-            temporary_path.chmod(stat.S_IMODE(config_path.stat().st_mode))
-            temporary_path.replace(config_path)
+            config_file.write(vdf.dumps(config, pretty=True).encode("utf-8"))
     except OSError as error:
         raise ConfigurationError(
             f"unable to update Steam configuration {config_path}: {error}"

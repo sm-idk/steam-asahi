@@ -308,7 +308,10 @@ let
 
   protonConfigurator =
     let
-      python = python314.withPackages (packages: [ packages.vdf ]);
+      python = python314.withPackages (packages: [
+        packages.boltons
+        packages.vdf
+      ]);
     in
     writeShellApplication {
       inheritPath = false;
