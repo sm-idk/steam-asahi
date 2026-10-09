@@ -3,9 +3,10 @@
 #
 # Runs Proton with the host libraries imported into Pressure Vessel
 
-set -eu
+set -o errexit
+set -o nounset
 
-script_path=$(readlink -f -- "$0")
+script_path=$(readlink --canonicalize -- "$0")
 tool_directory=${script_path%/*}
 readonly script_path tool_directory
 

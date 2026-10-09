@@ -89,7 +89,7 @@ install_fusermount_wrappers() {
     --options="${FUSERMOUNT_TMPFS_OPTIONS}" \
     tmpfs \
     "${wrappers_root}"
-  mkdir -p -- "${WRAPPERS_BIN_DIRECTORY}"
+  mkdir --parents -- "${WRAPPERS_BIN_DIRECTORY}"
   for name in "${!FUSERMOUNT_WRAPPERS[@]}"; do
     install \
       --group=root \
@@ -113,7 +113,7 @@ main() {
   install_fhs_commands
 
   # Pressure Vessel generates locales from glibc's charmaps when needed
-  mkdir -p -- "${FHS_ROOT}/usr/share"
+  mkdir --parents -- "${FHS_ROOT}/usr/share"
   rm --force --recursive --one-file-system --preserve-root=all -- \
     "${FHS_ROOT}/usr/share/i18n"
   ln --symbolic --no-target-directory -- \

@@ -24,7 +24,7 @@ disable_x86_overlay_preloads() {
 
   for link_name in "${X86_OVERLAY_LINKS[@]}"; do
     if [[ -L "${HOME}/.steam/${link_name}" ]]; then
-      rm -f -- "${HOME}/.steam/${link_name}" || return
+      rm --force -- "${HOME}/.steam/${link_name}" || return
     fi
   done
 }
@@ -53,7 +53,7 @@ repair_webhelper_script() {
   create_managed_temporary_path temporary_path "${helper_script}" || return
   if ! printf '%s\n' "${script_contents}" >"${temporary_path}" \
     || ! chmod --reference="${helper_script}" -- "${temporary_path}"; then
-    rm -f -- "${temporary_path}"
+    rm --force -- "${temporary_path}"
     return 1
   fi
   commit_managed_temporary_path "${temporary_path}" "${helper_script}"
@@ -84,7 +84,7 @@ repair_client_library_dependencies() {
   create_managed_temporary_path temporary_path "${library_path}" || return
   if ! cp --preserve=mode -- "${library_path}" "${temporary_path}" \
     || ! patchelf --add-needed libX11.so.6 "${temporary_path}"; then
-    rm -f -- "${temporary_path}"
+    rm --force -- "${temporary_path}"
     return 1
   fi
   commit_managed_temporary_path "${temporary_path}" "${library_path}"

@@ -132,9 +132,9 @@ install_native_libraries() {
   # Copy ldconfig like nixpkgs does because Pressure Vessel remaps /usr in
   # nested containers and can loop on a store symlink
   if [[ -L "${FHS_ROOT}/usr/sbin" ]]; then
-    rm -f -- "${FHS_ROOT}/usr/sbin"
+    rm --force -- "${FHS_ROOT}/usr/sbin"
   fi
-  mkdir -p -- "${FHS_ROOT}/sbin" "${FHS_ROOT}/usr/sbin"
+  mkdir --parents -- "${FHS_ROOT}/sbin" "${FHS_ROOT}/usr/sbin"
   for relative_path in sbin/ldconfig usr/sbin/ldconfig; do
     install --mode=0755 --no-target-directory -- \
       "${LDCONFIG}" "${FHS_ROOT}/${relative_path}"
@@ -165,7 +165,7 @@ install_shared_data() {
   local relative_path
   local share_directory="${FHS_ROOT}/usr/share"
 
-  mkdir -p -- "${share_directory}/X11"
+  mkdir --parents -- "${share_directory}/X11"
   for relative_path in "${!SHARED_DATA_LINKS[@]}"; do
     rm --force --recursive --one-file-system --preserve-root=all -- \
       "${share_directory:?}/${relative_path}"
@@ -221,7 +221,7 @@ install_etc_overlay() {
     create_managed_temporary_path temporary_path "${passwd_path}" || return
     if ! write_guest_passwd "${passwd_path}" >"${temporary_path}" \
       || ! chmod --reference="${passwd_path}" -- "${temporary_path}"; then
-      rm -f -- "${temporary_path}"
+      rm --force -- "${temporary_path}"
       return 1
     fi
     commit_managed_temporary_path "${temporary_path}" "${passwd_path}" \
@@ -241,7 +241,7 @@ install_etc_overlay() {
 install_var_overlay() {
   # libcapsule consults Debian's auxiliary cache location while importing host
   # graphics libraries. NixOS has no cache, so construct one in the guest FHS
-  mkdir -p -- \
+  mkdir --parents -- \
     "${FHS_ROOT}/var/cache/ldconfig" \
     "${FHS_ROOT}/var/lib" \
     "${FHS_ROOT}/var/log" \
@@ -254,7 +254,7 @@ install_var_overlay() {
   # bind over the existing /var mountpoint
   mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/var" /var
   "${LDCONFIG}" -X -f /etc/ld.so.conf -C /var/cache/ldconfig/ld.so.cache
-  rm -f -- /etc/ld.so.cache
+  rm --force -- /etc/ld.so.cache
   ln --symbolic --no-target-directory -- \
     /var/cache/ldconfig/ld.so.cache \
     /etc/ld.so.cache
@@ -271,7 +271,7 @@ main() {
   # host paths
   create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}"
   copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}"
-  mkdir -p -- "${FHS_ROOT}/usr/bin" "${LIBRARY_DIRECTORIES[@]}"
+  mkdir --parents -- "${FHS_ROOT}/usr/bin" "${LIBRARY_DIRECTORIES[@]}"
   install_fhs_commands "${FHS_ROOT}"
   install_native_libraries
   install_shared_data
