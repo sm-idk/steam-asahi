@@ -1,16 +1,22 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    "helpers:pinGitHubActionDigests"
-  ],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "automerge": true,
   "automergeType": "branch",
-  "branchConcurrentLimit": 1,
+  "baseBranchPatterns": ["main"],
+  "branchConcurrentLimit": 5,
+  "configMigration": false,
   "dependencyDashboard": false,
+  "dependencyDashboardApproval": false,
   "ignoreTests": false,
-  "prCreation": "never",
+  "prCreation": "approval",
   "rebaseWhen": "behind-base-branch",
+  "semanticCommits": "enabled",
+  "semanticCommitScope": "deps",
+  "suppressNotifications": ["configErrorIssue", "missingCredentialsError"],
+  "vulnerabilityAlerts": {
+    "enabled": false
+  },
   "nix": {
     "enabled": true
   },
@@ -18,21 +24,18 @@
     "enabled": true,
     "schedule": ["before 5am on monday"]
   },
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Update the Renovate version used by its own workflow",
-      "managerFilePatterns": ["/^\\.github/workflows/renovate\\.yml$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+renovate-version: (?<currentValue>\\S+)"
-      ]
-    }
-  ],
   "packageRules": [
     {
       "description": "Keep GitHub Actions immutable while following releases",
       "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
       "pinDigests": true
+    },
+    {
+      "description": "Update Renovate through the built-in workflow version manager",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
+      "pinDigests": false
     }
   ]
 }
