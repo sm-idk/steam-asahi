@@ -198,11 +198,20 @@ configure_guest_environment() {
 prepend_colon_path() {
   local variable_name=$1
   local existing_value=${!variable_name-}
-  local joined_value
-  local IFS=:
+  local entry
+  local joined_value=
+  local -a existing_entries=()
 
   shift
-  joined_value="$*${existing_value:+:${existing_value}}"
+  while [[ "${existing_value}" == *:* ]]; do
+    existing_entries+=("${existing_value%%:*}")
+    existing_value=${existing_value#*:}
+  done
+  existing_entries+=("${existing_value}")
+  for entry in "$@" "${existing_entries[@]}"; do
+    [[ -n "${entry}" ]] || continue
+    joined_value+="${joined_value:+:}${entry}"
+  done
   printf -v "${variable_name}" '%s' "${joined_value}"
   export "${variable_name?}"
 }
