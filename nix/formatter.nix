@@ -49,11 +49,11 @@ pkgs.treefmt.withConfig {
           "pkgs/steam/arm64/proton/wrapper"
         ];
         options = [
-          "-w"
-          "-i"
+          "--write"
+          "--indent"
           "2"
-          "-ci"
-          "-bn"
+          "--case-indent"
+          "--binary-next-line"
         ];
       };
       nixfmt = {

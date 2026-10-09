@@ -246,7 +246,7 @@ commit_managed_temporary_path() {
 
   if ! mv --force --no-copy --no-target-directory -- \
     "${temporary_path}" "${destination}"; then
-    rm -f -- "${temporary_path}"
+    rm --force -- "${temporary_path}"
     return 1
   fi
 }
@@ -260,18 +260,18 @@ materialize_etc_symlink() {
   local temporary_path
 
   [[ -L "${path}" ]] || return 0
-  target=$(readlink -f -- "${path}" 2>/dev/null) || return 0
+  target=$(readlink --canonicalize -- "${path}" 2>/dev/null) || return 0
   if [[ -f "${target}" ]]; then
     create_managed_temporary_path temporary_path "${path}" || return
     if ! cp --preserve=mode --no-target-directory -- \
       "${target}" "${temporary_path}"; then
-      rm -f -- "${temporary_path}"
+      rm --force -- "${temporary_path}"
       return 1
     fi
     commit_managed_temporary_path "${temporary_path}" "${path}"
   elif [[ -d "${target}" ]]; then
-    rm -f -- "${path}" || return
-    mkdir -p -- "${path}" || return
+    rm --force -- "${path}" || return
+    mkdir --parents -- "${path}" || return
     cp --archive --one-file-system -- "${target}/." "${path}/"
   fi
 }
@@ -281,17 +281,17 @@ materialize_etc_symlink() {
 populate_etc_overlay() {
   local relative_path
 
-  mkdir -p -- "${FHS_ROOT}/etc" || return
+  mkdir --parents -- "${FHS_ROOT}/etc" || return
   cp --archive --one-file-system -- /etc/. "${FHS_ROOT}/etc/" \
     2>/dev/null || true
   for relative_path in "${ETC_SYMLINKS_TO_MATERIALIZE[@]}"; do
     materialize_etc_symlink "${relative_path}" || return
   done
   for relative_path in "${ETC_STUB_DIRS[@]}"; do
-    mkdir -p -- "${FHS_ROOT}/etc/${relative_path}" || return
+    mkdir --parents -- "${FHS_ROOT}/etc/${relative_path}" || return
   done
   for relative_path in "${ETC_STUB_FILES[@]}"; do
-    rm -f -- "${FHS_ROOT}/etc/${relative_path}" || return
+    rm --force -- "${FHS_ROOT}/etc/${relative_path}" || return
     install \
       --mode="${ETC_STUB_FILE_MODE}" \
       --no-target-directory \
@@ -310,7 +310,7 @@ install_vulkan_metadata() {
   local source_directory
   local subdirectory
 
-  mkdir -p -- "${VULKAN_SHARE}" "${VULKAN_OVERRIDES}" || return
+  mkdir --parents -- "${VULKAN_SHARE}" "${VULKAN_OVERRIDES}" || return
   for subdirectory in "${VULKAN_SUBDIRECTORIES[@]}"; do
     source_directory="${OPENGL_VULKAN_SHARE}/${subdirectory}"
     [[ -e "${source_directory}" ]] || continue
@@ -319,7 +319,7 @@ install_vulkan_metadata() {
     ln --symbolic --no-target-directory -- \
       "${source_directory}" \
       "${VULKAN_SHARE}/${subdirectory}" || return
-    mkdir -p -- "${VULKAN_OVERRIDES}/${subdirectory}" || return
+    mkdir --parents -- "${VULKAN_OVERRIDES}/${subdirectory}" || return
     manifest_paths=("${source_directory}"/*.json)
     ((${#manifest_paths[@]} == 0)) || ln \
       --symbolic \
@@ -330,7 +330,7 @@ install_vulkan_metadata() {
   done
 
   (($# == 0)) && return
-  mkdir -p -- "${VULKAN_OVERRIDES}/implicit_layer.d" || return
+  mkdir --parents -- "${VULKAN_OVERRIDES}/implicit_layer.d" || return
   for extra_manifest in "$@"; do
     [[ -f "${extra_manifest}" ]] || continue
     cp \
@@ -365,7 +365,7 @@ create_fhs_directories() {
   local relative_path
 
   for relative_path in "$@"; do
-    mkdir -p -- "${FHS_ROOT}/${relative_path}" || return
+    mkdir --parents -- "${FHS_ROOT}/${relative_path}" || return
   done
 }
 

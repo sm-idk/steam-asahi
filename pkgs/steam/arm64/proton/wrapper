@@ -3,9 +3,10 @@
 #
 # Repairs Steam's ARM64 compatibility environment before entering the runtime
 
-set -eu
+set -o errexit
+set -o nounset
 
-script_path=$(readlink -f -- "$0")
+script_path=$(readlink --canonicalize -- "$0")
 tool_directory=${script_path%/*}
 # The Nix dynamic linker remains active inside Pressure Vessel and does not
 # search the runtime's distro library directories by default. Preserve any
@@ -51,7 +52,7 @@ elif [ "${compat_data_without_trailing_slash##*/}" = 0 ]; then
   export STEAM_COMPAT_DATA_PATH="${compat_data_parent}/steam-asahi-tool"
 fi
 if [ -n "${STEAM_COMPAT_DATA_PATH:-}" ]; then
-  mkdir -p -- "${STEAM_COMPAT_DATA_PATH}"
+  mkdir --parents -- "${STEAM_COMPAT_DATA_PATH}"
 fi
 
 log_path="${tool_directory}/steam-asahi-proton.log"
@@ -80,7 +81,7 @@ if [ "${status}" -ne 0 ]; then
     printf 'ERROR: Proton compatibility command exited with status %s.\n' \
       "${status}"
     printf 'Last 80 lines from %s:\n' "${log_path}"
-    tail -n 80 -- "${log_path}" || true
+    tail --lines=80 -- "${log_path}" || true
   } >&2
 fi
 

@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -o errexit
+set -o nounset
+set -o pipefail
 
-renovate_run_dir="$(mktemp -d)"
-trap 'rm -rf "$renovate_run_dir"' EXIT
+renovate_run_dir="$(mktemp --directory)"
+readonly renovate_run_dir
+
+cleanup() {
+  rm --force --recursive --one-file-system --preserve-root=all -- \
+    "$renovate_run_dir"
+}
+trap cleanup EXIT
 
 silent_policy="$(
   node <<'NODE'
@@ -24,7 +32,7 @@ process.stdout.write(JSON.stringify({
 NODE
 )"
 
-discovery_policy="$(node -e '
+discovery_policy="$(node --eval '
 const policy = JSON.parse(process.argv[1]);
 policy.mode = "full";
 process.stdout.write(JSON.stringify(policy));
