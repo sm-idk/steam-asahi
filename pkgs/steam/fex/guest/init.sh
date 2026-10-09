@@ -74,7 +74,7 @@ install_fhs_commands() {
 }
 
 install_etc_overlay() {
-  populate_etc_overlay
+  populate_etc_overlay || return
   mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/etc" /etc
 }
 
@@ -88,8 +88,8 @@ install_fusermount_wrappers() {
     --types=tmpfs \
     --options="${FUSERMOUNT_TMPFS_OPTIONS}" \
     tmpfs \
-    "${wrappers_root}"
-  mkdir --parents -- "${WRAPPERS_BIN_DIRECTORY}"
+    "${wrappers_root}" || return
+  mkdir --parents -- "${WRAPPERS_BIN_DIRECTORY}" || return
   for name in "${!FUSERMOUNT_WRAPPERS[@]}"; do
     install \
       --group=root \
@@ -98,33 +98,33 @@ install_fusermount_wrappers() {
       --no-target-directory \
       -- \
       "${FUSERMOUNT_WRAPPERS[${name}]}" \
-      "${WRAPPERS_BIN_DIRECTORY}/${name}"
+      "${WRAPPERS_BIN_DIRECTORY}/${name}" || return
   done
 }
 
 main() {
-  require_muvm_guest
+  require_muvm_guest || return
 
   # /usr is read-only in the guest. Construct a writable FHS tree in tmpfs,
   # then bind it over the inherited host directories
-  create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}"
-  copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}"
+  create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}" || return
+  copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}" || return
 
-  install_fhs_commands
+  install_fhs_commands || return
 
   # Pressure Vessel generates locales from glibc's charmaps when needed
-  mkdir --parents -- "${FHS_ROOT}/usr/share"
+  mkdir --parents -- "${FHS_ROOT}/usr/share" || return
   rm --force --recursive --one-file-system --preserve-root=all -- \
-    "${FHS_ROOT}/usr/share/i18n"
+    "${FHS_ROOT}/usr/share/i18n" || return
   ln --symbolic --no-target-directory -- \
     "${GLIBC_I18N}" \
-    "${FHS_ROOT}/usr/share/i18n"
+    "${FHS_ROOT}/usr/share/i18n" || return
 
   # Steam creates overlay and Fossilize layer metadata in users' XDG trees
   install_vulkan_metadata \
-    /home/*/.local/share/vulkan/implicit_layer.d/steam*.json
-  bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}"
-  install_etc_overlay
+    /home/*/.local/share/vulkan/implicit_layer.d/steam*.json || return
+  bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}" || return
+  install_etc_overlay || return
   install_fusermount_wrappers
 }
 

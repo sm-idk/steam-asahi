@@ -133,19 +133,19 @@ install_native_libraries() {
   # Copy ldconfig like nixpkgs does because Pressure Vessel remaps /usr in
   # nested containers and can loop on a store symlink
   if [[ -L "${FHS_ROOT}/usr/sbin" ]]; then
-    rm --force -- "${FHS_ROOT}/usr/sbin"
+    rm --force -- "${FHS_ROOT}/usr/sbin" || return
   fi
-  mkdir --parents -- "${FHS_ROOT}/sbin" "${FHS_ROOT}/usr/sbin"
+  mkdir --parents -- "${FHS_ROOT}/sbin" "${FHS_ROOT}/usr/sbin" || return
   for relative_path in sbin/ldconfig usr/sbin/ldconfig; do
     install --mode=0755 --no-target-directory -- \
-      "${LDCONFIG}" "${FHS_ROOT}/${relative_path}"
+      "${LDCONFIG}" "${FHS_ROOT}/${relative_path}" || return
   done
 
   # Steam's own runtime takes precedence later. This fallback provides the
   # native dynamic linker and libraries needed by initial client probes
   ln --symbolic --force --no-target-directory -- \
     "${LD_LINUX}" \
-    "${FHS_ROOT}/lib/ld-linux-aarch64.so.1"
+    "${FHS_ROOT}/lib/ld-linux-aarch64.so.1" || return
   if ((${#library_paths[@]} == 0)); then
     printf 'ERROR: no native libraries found under %s/lib\n' \
       "${NATIVE_RUNTIME}" >&2
@@ -158,7 +158,7 @@ install_native_libraries() {
       --no-dereference \
       --target-directory="${directory}" \
       -- \
-      "${library_paths[@]}"
+      "${library_paths[@]}" || return
   done
 }
 
@@ -167,13 +167,13 @@ install_shared_data() {
   local relative_path
   local share_directory="${FHS_ROOT}/usr/share"
 
-  mkdir --parents -- "${share_directory}/X11"
+  mkdir --parents -- "${share_directory}/X11" || return
   for relative_path in "${!SHARED_DATA_LINKS[@]}"; do
     rm --force --recursive --one-file-system --preserve-root=all -- \
-      "${share_directory:?}/${relative_path}"
+      "${share_directory:?}/${relative_path}" || return
     ln --symbolic --no-target-directory -- \
       "${SHARED_DATA_LINKS[${relative_path}]}" \
-      "${share_directory}/${relative_path}"
+      "${share_directory}/${relative_path}" || return
   done
 }
 
@@ -207,7 +207,7 @@ install_etc_overlay() {
   local passwd_path="${FHS_ROOT}/etc/passwd"
   local temporary_path
 
-  populate_etc_overlay
+  populate_etc_overlay || return
 
   # HOME alone is insufficient for isolated Steam state because parts of the
   # client consult getpwuid(). Mirror the requested guest HOME in passwd
@@ -231,10 +231,10 @@ install_etc_overlay() {
   fi
 
   for directory in "${LIBRARY_DIRECTORIES[@]}"; do
-    printf '%s\n' "${directory#"${FHS_ROOT}"}"
-  done >"${FHS_ROOT}/etc/ld.so.conf"
+    printf '%s\n' "${directory#"${FHS_ROOT}"}" || return
+  done >"${FHS_ROOT}/etc/ld.so.conf" || return
   printf '%s\n' "${OPENGL_DRIVER_ROOT}/lib" \
-    >>"${FHS_ROOT}/etc/ld.so.conf"
+    >>"${FHS_ROOT}/etc/ld.so.conf" || return
   mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/etc" /etc
 }
 
@@ -247,23 +247,24 @@ install_var_overlay() {
     "${FHS_ROOT}/var/cache/ldconfig" \
     "${FHS_ROOT}/var/lib" \
     "${FHS_ROOT}/var/log" \
-    "${FHS_ROOT}/var/tmp"
-  chmod "${TEMP_DIRECTORY_MODE}" -- "${FHS_ROOT}/var/tmp"
+    "${FHS_ROOT}/var/tmp" || return
+  chmod "${TEMP_DIRECTORY_MODE}" -- "${FHS_ROOT}/var/tmp" || return
   ln --symbolic --force --no-target-directory -- \
     /run \
-    "${FHS_ROOT}/var/run"
+    "${FHS_ROOT}/var/run" || return
   # The unprivileged guest cannot add a mountpoint to inherited /var, but can
   # bind over the existing /var mountpoint
-  mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/var" /var
-  "${LDCONFIG}" -X -f /etc/ld.so.conf -C /var/cache/ldconfig/ld.so.cache
-  rm --force -- /etc/ld.so.cache
+  mount "${MOUNT_BASE_ARGS[@]}" --bind "${FHS_ROOT}/var" /var || return
+  "${LDCONFIG}" -X -f /etc/ld.so.conf -C /var/cache/ldconfig/ld.so.cache \
+    || return
+  rm --force -- /etc/ld.so.cache || return
   ln --symbolic --no-target-directory -- \
     /var/cache/ldconfig/ld.so.cache \
     /etc/ld.so.cache
 }
 
 main() {
-  require_muvm_guest
+  require_muvm_guest || return
 
   # None of the installation globs depend on lexical order
   local -r GLOBSORT=nosort
@@ -271,25 +272,26 @@ main() {
   # Valve's binaries request /lib/ld-linux-aarch64.so.1 and assume a
   # conventional distro filesystem. These guest-only tmpfs mounts never modify
   # host paths
-  create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}"
-  copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}"
-  mkdir --parents -- "${FHS_ROOT}/usr/bin" "${LIBRARY_DIRECTORIES[@]}"
-  install_fhs_commands "${FHS_ROOT}"
-  install_native_libraries
-  install_shared_data
-  install_vulkan_metadata
+  create_fhs_directories "${FHS_CREATE_DIRECTORIES[@]}" || return
+  copy_host_fhs_directories "${FHS_COPY_DIRECTORIES[@]}" || return
+  mkdir --parents -- "${FHS_ROOT}/usr/bin" "${LIBRARY_DIRECTORIES[@]}" \
+    || return
+  install_fhs_commands "${FHS_ROOT}" || return
+  install_native_libraries || return
+  install_shared_data || return
+  install_vulkan_metadata || return
 
-  bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}"
+  bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}" || return
   # muvm mounts /run noexec; allow the copied ldconfig binary to execute
   mount "${MOUNT_BASE_ARGS[@]}" --options=exec --bind \
-    "${FHS_ROOT}/usr/sbin" /usr/sbin
+    "${FHS_ROOT}/usr/sbin" /usr/sbin || return
   # NixOS may have no /sbin, and muvm cannot create it in the shared host root
   # Pressure Vessel also searches /usr/sbin, so /sbin is optional in the guest
   if [[ -d /sbin ]]; then
     mount "${MOUNT_BASE_ARGS[@]}" --options=exec --bind \
-      "${FHS_ROOT}/sbin" /sbin
+      "${FHS_ROOT}/sbin" /sbin || return
   fi
-  install_etc_overlay
+  install_etc_overlay || return
   install_var_overlay
 }
 
