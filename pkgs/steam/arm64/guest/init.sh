@@ -280,6 +280,7 @@ main() {
   install_fhs_commands "${FHS_ROOT}" || return
   install_native_libraries || return
   install_shared_data || return
+  install_host_locale_data || return
   install_vulkan_metadata || return
 
   bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}" || return
