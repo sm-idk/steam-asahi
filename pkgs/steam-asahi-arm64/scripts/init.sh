@@ -129,8 +129,8 @@ install_native_libraries() {
   local relative_path
   local -a library_paths=("${NATIVE_RUNTIME}"/lib/*)
 
-  # Pressure Vessel calls /sbin/ldconfig and remaps /usr in nested containers;
-  # copy the binary like nixpkgs does to avoid a store symlink loop there
+  # Copy ldconfig like nixpkgs does because Pressure Vessel remaps /usr in
+  # nested containers and can loop on a store symlink
   if [[ -L "${FHS_ROOT}/usr/sbin" ]]; then
     rm -f -- "${FHS_ROOT}/usr/sbin"
   fi
@@ -278,8 +278,15 @@ main() {
   install_vulkan_metadata
 
   bind_fhs_directories "${FHS_BIND_DIRECTORIES[@]}"
-  mount "${MOUNT_BASE_ARGS[@]}" --mkdir=0755 --bind \
-    "${FHS_ROOT}/sbin" /sbin
+  # muvm mounts /run noexec; allow the copied ldconfig binary to execute
+  mount "${MOUNT_BASE_ARGS[@]}" --options=exec --bind \
+    "${FHS_ROOT}/usr/sbin" /usr/sbin
+  # NixOS may have no /sbin, and muvm cannot create it in the shared host root
+  # Pressure Vessel also searches /usr/sbin, so /sbin is optional in the guest
+  if [[ -d /sbin ]]; then
+    mount "${MOUNT_BASE_ARGS[@]}" --options=exec --bind \
+      "${FHS_ROOT}/sbin" /sbin
+  fi
   install_etc_overlay
   install_var_overlay
 }

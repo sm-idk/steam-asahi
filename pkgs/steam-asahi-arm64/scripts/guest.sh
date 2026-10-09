@@ -65,7 +65,7 @@ repair_client_library_links() {
   local client_directory=$1
 
   [[ -d "${client_directory}/libs" ]] || return 0
-  /sbin/ldconfig -n "${client_directory}" "${client_directory}/libs"
+  /usr/sbin/ldconfig -n "${client_directory}" "${client_directory}/libs"
 }
 
 # Valve's ARM FFmpeg 8 build references X11 without a DT_NEEDED entry; declare
