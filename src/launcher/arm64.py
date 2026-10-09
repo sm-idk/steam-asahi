@@ -32,6 +32,12 @@ from common import (
 from configuration import Arm64Configuration
 
 
+# The guest repairs Valve's helper and FFmpeg library before launch. Bootstrap
+# verification would restore their original bytes and request another restart
+# This flag leaves update checks enabled while preserving the local repairs
+ARM64_CLIENT_ARGS = (*STEAM_CLIENT_ARGS, "-noverifyfiles")
+
+
 class Arm64Launcher:
     def __init__(self, configuration: Arm64Configuration) -> None:
         self.config = configuration
@@ -93,7 +99,12 @@ class Arm64Launcher:
                 # Steam can find its PID and handle URLs or reopen the window
                 print("Forwarding command to the running ARM64 Steam client...")
                 self.run_guest(
-                    ["--forward", str(self.client / "steam"), *arguments],
+                    [
+                        "--forward",
+                        str(self.client / "steam"),
+                        *ARM64_CLIENT_ARGS,
+                        *arguments,
+                    ],
                     interactive=False,
                     reuse_only=True,
                 )
@@ -294,7 +305,7 @@ class Arm64Launcher:
             [
                 "--steam",
                 str(self.client / "steam"),
-                *STEAM_CLIENT_ARGS,
+                *ARM64_CLIENT_ARGS,
                 *arguments,
             ]
         )
