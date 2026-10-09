@@ -35,6 +35,7 @@ readonly C_LOCALE=C.UTF-8
 readonly ARM64_CLIENT_DIRECTORY_NAME=steamrtarm64
 readonly ETC_STUB_FILE_MODE=0644
 readonly FHS_ROOT=/run/fhs
+readonly GUEST_LOCALE_ARCHIVE_PATH=/usr/lib/locale/locale-archive
 readonly LOCALE_ARCHIVE_PATH=/run/current-system/sw/lib/locale/locale-archive
 readonly OPENGL_DRIVER_ROOT=/run/opengl-driver
 readonly OPENGL_VULKAN_SHARE="${OPENGL_DRIVER_ROOT}/share/vulkan"
@@ -188,7 +189,9 @@ configure_guest_environment() {
   prepend_colon_path XDG_DATA_DIRS "${GUEST_DATA_DIRECTORIES[@]}"
   export_default_environment COMMON_DRIVER_ENVIRONMENT
   configure_guest_locale
-  export LOCALE_ARCHIVE="${LOCALE_ARCHIVE_PATH}"
+  # Pressure Vessel imports /usr/lib/locale but does not preserve the host's
+  # /run/current-system path inside the nested game container
+  export LOCALE_ARCHIVE="${GUEST_LOCALE_ARCHIVE_PATH}"
   export TZDIR="${TZDATA_DIRECTORY}"
   unset -v GIO_EXTRA_MODULES
 }
@@ -390,6 +393,23 @@ copy_host_fhs_directories() {
       "${FHS_ROOT}/${relative_path}/" \
       2>/dev/null || true
   done
+}
+
+# Pressure Vessel imports compiled locales from /usr/lib/locale, independently
+# of LOCALE_ARCHIVE in the client environment. Expose the same NixOS data there
+# when the host provides it; charmaps remain available for locale generation
+install_host_locale_data() {
+  local locale_directory
+  local destination="${FHS_ROOT}/usr/lib/locale"
+
+  [[ -f "${LOCALE_ARCHIVE_PATH}" ]] || return 0
+  locale_directory=$(readlink --canonicalize -- \
+    "${LOCALE_ARCHIVE_PATH%/*}") || return
+  mkdir --parents -- "${FHS_ROOT}/usr/lib" || return
+  rm --force --recursive --one-file-system --preserve-root=all -- \
+    "${destination}" || return
+  ln --symbolic --no-target-directory -- \
+    "${locale_directory}" "${destination}"
 }
 
 # Binds the guest FHS directories over the inherited host paths

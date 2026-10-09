@@ -119,6 +119,7 @@ main() {
   ln --symbolic --no-target-directory -- \
     "${GLIBC_I18N}" \
     "${FHS_ROOT}/usr/share/i18n" || return
+  install_host_locale_data || return
 
   # Steam creates overlay and Fossilize layer metadata in users' XDG trees
   install_vulkan_metadata \
