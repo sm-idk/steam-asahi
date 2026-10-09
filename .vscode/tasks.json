@@ -42,7 +42,7 @@
         "ty",
         "check",
         "--extra-search-path",
-        "pkgs/scripts/launcher"
+        "src/launcher"
       ],
       "problemMatcher": []
     },

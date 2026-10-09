@@ -27,12 +27,12 @@ select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
 # The import check captures the environment before loading launcher modules
-"pkgs/steam-asahi-arm64/tests/check-launcher-imports.py" = ["E402"]
+"tests/shell/launcher/imports.py" = ["E402"]
 
 [tool.ty.environment]
 python-version = "3.14"
 python-platform = "linux"
-extra-paths = ["pkgs/scripts/launcher"]
+extra-paths = ["src/launcher"]
 
 [tool.ty.src]
 exclude = [".direnv", "downloads"]

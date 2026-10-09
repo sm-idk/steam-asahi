@@ -226,14 +226,10 @@ Evaluate outputs for both supported check platforms without building them:
 nix flake check --all-systems --no-build -L
 ```
 
-The checks cover package layouts, the ARM client updater fixture, NixOS module
-evaluation, launch argument handling, ShellCheck and source policy, and a
-booted NixOS VM. Run the VM test directly with:
-
-```console
-system=$(nix eval --impure --raw --expr builtins.currentSystem)
-nix build ".#checks.$system.steam-asahi-nixos-vm" -L
-```
+The checks cover package layouts, NixOS module evaluation, launch argument
+handling, ShellCheck, and source formatting. They do not boot a NixOS VM or
+verify an interactive desktop session. Native Asahi gameplay and desktop
+integration still need runtime validation on Apple Silicon.
 
 ## Thanks
 
