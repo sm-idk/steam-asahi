@@ -324,6 +324,7 @@ install_vulkan_metadata() {
     ((${#manifest_paths[@]} == 0)) || ln \
       --symbolic \
       --force \
+      --no-dereference \
       --target-directory="${VULKAN_OVERRIDES}/${subdirectory}" \
       -- \
       "${manifest_paths[@]}" || return
