@@ -190,7 +190,8 @@ write_guest_passwd() {
   local password
 
   while IFS=: read -r \
-    account_name password entry_uid gid gecos home login_shell; do
+    account_name password entry_uid gid gecos home login_shell \
+    || [[ -n "${account_name}" ]]; do
     if [[ "${entry_uid}" == "${STEAM_ASAHI_GUEST_UID}" ]]; then
       home=${STEAM_ASAHI_GUEST_HOME}
     fi
