@@ -108,6 +108,7 @@ link_commands() {
     ln \
       --symbolic \
       --force \
+      --no-dereference \
       --target-directory="${destination}" \
       -- \
       "${command_paths[@]}" || return
@@ -154,6 +155,7 @@ install_native_libraries() {
     ln \
       --symbolic \
       --force \
+      --no-dereference \
       --target-directory="${directory}" \
       -- \
       "${library_paths[@]}"
