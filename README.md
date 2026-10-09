@@ -226,9 +226,9 @@ Evaluate outputs for both supported check platforms without building them:
 nix flake check --all-systems --no-build -L
 ```
 
-The checks cover package layouts, the ARM client updater fixture, NixOS module
-evaluation, launch argument handling, ShellCheck and source policy, and a
-booted NixOS VM. Run the VM test directly with:
+The checks cover package layouts, NixOS module evaluation, launch argument
+handling, ShellCheck and source policy, and a booted NixOS VM. Run the VM test
+directly with:
 
 ```console
 system=$(nix eval --impure --raw --expr builtins.currentSystem)

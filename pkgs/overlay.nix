@@ -1,83 +1,22 @@
 final: prev:
-let
-  fexOverrideVersion = "2610";
-  libkrunOverrideVersion = "1.19.6";
-  libkrunfwOverrideVersion = "5.6.2";
-  libkrunfwKernelVersion = "6.12.112";
-  nixpkgsFexIsCurrent = prev.lib.strings.versionAtLeast prev.fex.version fexOverrideVersion;
-  nixpkgsLibkrunIsCurrent = prev.lib.strings.versionAtLeast prev.libkrun.version libkrunOverrideVersion;
-  nixpkgsLibkrunfwIsCurrent = prev.lib.strings.versionAtLeast prev.libkrunfw.version libkrunfwOverrideVersion;
-  overriddenFex = prev.fex.overrideAttrs (old: {
-    version = fexOverrideVersion;
-    src = old.src.overrideAttrs (_: {
-      rev = "refs/tags/FEX-${fexOverrideVersion}";
-      hash = "sha256-woTzApJKXAkdxIRMhxu9UO0eXGMJseMUUnhZ4Vb5zgA=";
-    });
-    doCheck = false;
-  });
-  overriddenLibkrun = prev.libkrun.overrideAttrs (
-    finalAttrs: _old: {
-      version = libkrunOverrideVersion;
-      src = prev.fetchFromGitHub {
-        owner = "libkrun";
-        repo = "libkrun";
-        tag = "v${finalAttrs.version}";
-        hash = "sha256-h37J1J/oe4PpY5Xtv8Js/wEA7av9M/VK4OTY1svK++0=";
-      };
-      cargoDeps = prev.rustPlatform.fetchCargoVendor {
-        inherit (finalAttrs) src;
-        hash = "sha256-SPlozqdmX0khawoFjZrqYjQ5qDY4tSVa7gpehYHUTz8=";
-      };
-    }
-  );
-  overriddenLibkrunfw = prev.libkrunfw.overrideAttrs (
-    finalAttrs: old: {
-      version = libkrunfwOverrideVersion;
-      src = prev.fetchFromGitHub {
-        owner = "libkrun";
-        repo = "libkrunfw";
-        tag = "v${finalAttrs.version}";
-        hash = "sha256-HklZgZPjXe+eAGzRulEwRR1eo83tGlZBTRooCv0/ADU=";
-      };
-      kernelSrc = prev.fetchurl {
-        url = "mirror://kernel/linux/kernel/v6.x/linux-${libkrunfwKernelVersion}.tar.xz";
-        hash = "sha256-Fk3J0fbJPGGhXh8HHEg3m0Z/KxfEacznIjRxloII7QM=";
-      };
-      makeFlags = (old.makeFlags or [ ]) ++ [ "KERNEL_VERSION=linux-${libkrunfwKernelVersion}" ];
-    }
-  );
-in
-{
-  steam-arm64-client = final.callPackage ./steam-arm64-client { };
-  steam-asahi-arm64 = final.callPackage ./steam-asahi-arm64 { };
-  steam-asahi = final.callPackage ./steam-asahi { };
 
-  libkrun = prev.lib.trivial.warnIf nixpkgsLibkrunIsCurrent ''
-    libkrun >= ${libkrunOverrideVersion} is now in nixpkgs; remove the libkrun override.
-  '' (if nixpkgsLibkrunIsCurrent then prev.libkrun else overriddenLibkrun);
-  libkrunfw = prev.lib.trivial.warnIf nixpkgsLibkrunfwIsCurrent ''
-    libkrunfw >= ${libkrunfwOverrideVersion} is now in nixpkgs; remove the libkrunfw override.
-  '' (if nixpkgsLibkrunfwIsCurrent then prev.libkrunfw else overriddenLibkrunfw);
-
-  fex = prev.lib.trivial.warnIf nixpkgsFexIsCurrent ''
-    FEX >= ${fexOverrideVersion} is now in nixpkgs; remove the FEX override.
-  '' (if nixpkgsFexIsCurrent then prev.fex else overriddenFex);
-  # Separate VM control sockets while retaining host audio and desktop paths
-  muvm = prev.muvm.overrideAttrs (
-    finalAttrs: old: {
-      version = "0.7.0-unstable-2026-09-25";
-      src = prev.fetchFromGitHub {
-        owner = "AsahiLinux";
-        repo = "muvm";
-        rev = "b761e07b84652e7fb00df83315907c1809899080";
-        hash = "sha256-I6MtpnVA1+BvDXzEjP+bCP5w+t8JgOH5oRHuIGwyOys=";
-      };
-      cargoHash = null;
-      cargoDeps = prev.rustPlatform.fetchCargoVendor {
-        inherit (finalAttrs) src;
-        hash = "sha256-HDHo/NfQM16JU9DbblFw2jxPEhhgdE/EUgBriKg/6uM=";
-      };
-      patches = (old.patches or [ ]) ++ [ ./muvm/runtime-directory.patch ];
-    }
-  );
+(import ./default.nix { pkgs = final; })
+// {
+  # Import override expressions directly so the upstream .override API survives
+  fex = import ./fex/override.nix {
+    inherit (final) lib;
+    upstream = prev.fex;
+  };
+  libkrun = import ./libkrun/override.nix {
+    inherit (final) lib fetchFromGitHub rustPlatform;
+    upstream = prev.libkrun;
+  };
+  libkrunfw = import ./libkrunfw/override.nix {
+    inherit (final) lib fetchFromGitHub fetchurl;
+    upstream = prev.libkrunfw;
+  };
+  muvm = import ./muvm/override.nix {
+    inherit (final) fetchFromGitHub rustPlatform;
+    upstream = prev.muvm;
+  };
 }

@@ -16,7 +16,7 @@
   "ty.importStrategy": "fromEnvironment",
   "ty.configuration": {
     "environment": {
-      "extra-paths": ["pkgs/scripts/launcher"],
+      "extra-paths": ["src/launcher"],
       "python-platform": "linux"
     }
   },
