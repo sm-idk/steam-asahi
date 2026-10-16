@@ -46,6 +46,7 @@
             libkrun
             muvm
             fex
+            steam-x86_64-client
             steam-arm64-client
             steam-asahi-arm64
             steam-asahi

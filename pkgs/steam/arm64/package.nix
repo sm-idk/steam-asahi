@@ -209,6 +209,7 @@ in
   desktopName = "Steam (Asahi, ARM64 beta)";
   comment = "Native ARM64 Steam public beta in a 4K-page microVM";
   passthru = {
+    inherit (steam-arm64-client) updateScript;
     inherit
       customSteamHomeDir
       nativeRuntime
