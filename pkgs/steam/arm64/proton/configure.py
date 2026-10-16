@@ -9,15 +9,14 @@
 from __future__ import annotations
 
 import argparse
-import shutil
+import re
 from pathlib import Path
-from typing import cast
 from uuid import uuid4
 
 import vdf
 from boltons.fileutils import atomic_save
 
-type VdfObject = dict[str, str | VdfObject]
+type VdfObject = vdf.VDFDict
 
 
 class Arguments(argparse.Namespace):
@@ -31,7 +30,7 @@ class ConfigurationError(RuntimeError):
 
 
 def parse_app_id(value: str) -> str:
-    if not value.isascii() or not value.isdecimal() or value.startswith("0"):
+    if re.fullmatch(r"[1-9][0-9]*", value) is None:
         raise argparse.ArgumentTypeError(
             "APPID must be a positive decimal integer"
         )
@@ -39,8 +38,22 @@ def parse_app_id(value: str) -> str:
 
 
 def child_mapping(parent: VdfObject, key: str) -> VdfObject:
-    value = parent.setdefault(key, {})
-    if not isinstance(value, dict):
+    # Steam matches keys without case sensitivity; VDFDict preserves spelling
+    matches = [
+        value
+        for name, value in parent.items()
+        if name.isascii() and name.casefold() == key.casefold()
+    ]
+    if len(matches) > 1:
+        raise ConfigurationError(
+            f'ambiguous duplicate VDF object at key "{key}"'
+        )
+    if matches:
+        value = matches[0]
+    else:
+        value = vdf.VDFDict()
+        parent[key] = value
+    if not isinstance(value, vdf.VDFDict):
         raise ConfigurationError(f'expected VDF object at key "{key}"')
     return value
 
@@ -53,45 +66,73 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
         )
 
     try:
-        with config_path.open(encoding="utf-8") as config_file:
-            config: object = vdf.load(config_file)
-    except (OSError, SyntaxError, UnicodeError) as error:
+        original = config_path.read_bytes()
+        # Preserve duplicate entries outside the mapping being changed
+        config = vdf.loads(
+            original.decode("utf-8"),
+            mapper=vdf.VDFDict,
+            merge_duplicate_keys=False,
+        )
+    except (OSError, SyntaxError, UnicodeError, RecursionError) as error:
         raise ConfigurationError(
             f"unable to read Steam configuration {config_path}: {error}"
         ) from error
-    if not isinstance(config, dict):
+    if not isinstance(config, vdf.VDFDict):
         raise ConfigurationError(
             f"expected a VDF object at the root of {config_path}"
         )
 
     # VDF leaves are strings; validate objects as we traverse the requested path
-    config = cast(VdfObject, config)
     current = config
     for key in ("InstallConfigStore", "Software", "Valve", "Steam"):
         current = child_mapping(current, key)
     mappings = child_mapping(current, "CompatToolMapping")
 
-    requested: VdfObject = {
-        "name": tool_name,
-        "config": "",
-        "priority": "250",
-    }
-    if mappings.get(app_id) == requested:
-        return False
-    mappings[app_id] = requested
+    requested = {"name": tool_name, "config": "", "priority": "250"}
+    existing = mappings.get_all_for(app_id)
+    if len(existing) == 1 and isinstance(
+        current_mapping := existing[0], vdf.VDFDict
+    ):
+        # VDFDict equality includes order; Steam treats these as named fields
+        if (
+            len(current_mapping) == len(requested)
+            and {
+                name.casefold(): value
+                for name, value in current_mapping.items()
+            }
+            == requested
+        ):
+            return False
+    if app_id in mappings:
+        mappings.remove_all_for(app_id)
+    mappings[app_id] = vdf.VDFDict(requested)
 
     backup_path = config_path.with_name(
         f"{config_path.name}.steam-asahi-backup"
     )
     try:
-        if not backup_path.exists():
-            shutil.copy2(config_path, backup_path)
+        try:
+            with atomic_save(
+                backup_path,
+                overwrite=False,
+                file_perms=0o600,
+                part_file=f".{uuid4().hex}",
+            ) as backup:
+                backup.write(original)
+        except FileExistsError:
+            pass
 
         with atomic_save(
-            str(config_path), part_file=f".{uuid4().hex}"
+            config_path, text_mode=True, part_file=f".{uuid4().hex}"
         ) as config_file:
-            config_file.write(vdf.dumps(config, pretty=True).encode("utf-8"))
-    except OSError as error:
+            config_file.reconfigure(encoding="utf-8")
+            vdf.dump(config, config_file, pretty=True)
+            if config_path.read_bytes() != original:
+                raise ConfigurationError(
+                    "Steam configuration changed during the update; "
+                    "close Steam and try again"
+                )
+    except (OSError, UnicodeError, RecursionError) as error:
         raise ConfigurationError(
             f"unable to update Steam configuration {config_path}: {error}"
         ) from error
