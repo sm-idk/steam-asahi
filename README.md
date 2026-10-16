@@ -9,7 +9,7 @@
 <p align="center">
   <img alt="NixOS Asahi" src="https://img.shields.io/badge/NixOS-Asahi-5277C3?style=flat-square&amp;logo=nixos&amp;logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-aarch64-111111?style=flat-square&amp;logo=apple&amp;logoColor=white">
-  <img alt="x86 FEX and ARM64 backends" src="https://img.shields.io/badge/backends-x86%2FFEX%20%7C%20ARM64-5C6BC0?style=flat-square">
+  <img alt="x86_64 FEX and ARM64 backends" src="https://img.shields.io/badge/backends-x86_64%2FFEX%20%7C%20ARM64-5C6BC0?style=flat-square">
   <img alt="Experimental project" src="https://img.shields.io/badge/status-experimental-F59E0B?style=flat-square">
 </p>
 
@@ -23,11 +23,11 @@
 
 _Screenshot courtesy of EliSaado from `#asahi-alt` on OFTC IRC._
 
-Steam requires **4K memory pages**, while Linux on Apple Silicon uses 16K
-pages. Steam Asahi bridges that gap with a 4K-page
+Steam requires **4K memory pages**, while Linux on Apple Silicon uses 16K pages.
+Steam Asahi bridges that gap with a 4K-page
 [`muvm`](https://github.com/AsahiLinux/muvm) microVM with accelerated Asahi
-graphics. It runs the standard x86 Steam client through FEX by default, with
-an experimental native ARM64 backend available for testing.
+graphics. It runs the standard x86_64 Steam beta client through FEX by default,
+with an experimental native ARM64 backend available for testing.
 
 ## Requirements
 
@@ -96,8 +96,8 @@ Open **Steam Asahi** from the application launcher, or run:
 steam-asahi
 ```
 
-Run `steam-asahi` directly from the host shell. The first x86 launch downloads
-an approximately 1.3 GiB Fedora 44 FEX root filesystem.
+Run `steam-asahi` directly from the host shell. The first x86_64 launch
+downloads an approximately 1.3 GiB Fedora 44 FEX root filesystem.
 
 > [!IMPORTANT]
 > Do not enable `programs.steam` or `hardware.graphics.enable32Bit`. The
@@ -116,7 +116,7 @@ NixOS configuration.
 
 ## Configuration
 
-The x86/FEX backend is the recommended default. Common optional settings are:
+The x86_64/FEX backend is the recommended default. Common optional settings are:
 
 ```nix
 programs.steam-asahi = {
@@ -157,9 +157,9 @@ frame pacing. Benchmark the default and the all-core configuration per game.
 
 ## Backends
 
-|                 | x86/FEX             | Native ARM64 beta                        |
+|                 | x86_64/FEX          | Native ARM64 beta                        |
 | --------------- | ------------------- | ---------------------------------------- |
-| Steam client    | Standard x86 client | Valve public beta                        |
+| Steam client    | x86_64 public beta  | Valve public beta                        |
 | Recommended     | Yes                 | Testing only                             |
 | Windows games   | Standard Proton     | Proton 11.0 (ARM64)                      |
 | x86 Linux games | FEX                 | Use the Windows build through ARM Proton |
@@ -168,10 +168,10 @@ frame pacing. Benchmark the default and the all-core configuration per game.
 
 The experimental ARM64 beta uses separate Steam state under
 `$XDG_DATA_HOME/steam-asahi-arm64-home` (normally
-`~/.local/share/steam-asahi-arm64-home`). Do not add the x86 Steam library to
+`~/.local/share/steam-asahi-arm64-home`). Do not add the x86_64 Steam library to
 the ARM64 client because the backends must not share mutable `compatdata`.
 
-If you already have an authenticated x86 installation, exit Steam, switch the
+If you already have an authenticated x86_64 installation, exit Steam, switch the
 module backend to `"arm64"`, rebuild, and import a copy of the login state:
 
 ```console

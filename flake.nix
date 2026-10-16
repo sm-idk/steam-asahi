@@ -1,5 +1,5 @@
 {
-  description = "Steam on NixOS Asahi Linux via x86/FEX or the native ARM64 beta";
+  description = "Steam on NixOS Asahi Linux via x86_64/FEX or the native ARM64 beta";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs";
 

@@ -1,8 +1,10 @@
 {
   lib,
   runCommand,
+  unzip,
   writeShellApplication,
   steam-asahi,
+  steam-x86_64-client,
 }:
 
 let
@@ -21,13 +23,18 @@ let
     '';
   };
 
-  fakeSteamSource = runCommand "fake-steam-source" { } ''
-    mkdir -p "$out"
-    printf '%s\n' '#!/bin/sh' 'exit 0' > "$out/bin_steam.sh"
-    touch \
-      "$out/bootstraplinux_ubuntu12_32.tar.xz" \
-      "$out/steam_subscriber_agreement.txt"
-  '';
+  fakeSteamSource =
+    runCommand "fake-steam-x86_64-client"
+      {
+        version = "test";
+        passthru.updateChannel = "publicbeta";
+      }
+      ''
+        mkdir -p "$out/share/steam-x86_64-client/steamrt64"
+        printf '%s\n' '#!/bin/sh' 'exit 0' \
+          > "$out/share/steam-x86_64-client/steamrt64/steam"
+        chmod +x "$out/share/steam-x86_64-client/steamrt64/steam"
+      '';
 
   fakeSteam =
     runCommand "fake-steam-unwrapped"
@@ -43,6 +50,7 @@ let
     muvm = fakeMuvm;
     fex = fakeFex;
     steam-unwrapped = fakeSteam;
+    steam-x86_64-client = fakeSteamSource;
     muvmHostMount = "/tmp/steam-asahi-muvm-host";
     cpuList = [
       0
@@ -59,17 +67,21 @@ let
     extraEnv.TEST_ENVIRONMENT = "value with spaces";
   };
 in
-runCommand "steam-asahi-launcher-test" { } ''
+runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   export HOME="$TMPDIR/home with spaces"
   export XDG_CONFIG_HOME="$HOME/config"
   export XDG_DATA_HOME="$HOME/data"
   export XDG_RUNTIME_DIR="$HOME/runtime"
   export STEAM_ASAHI_NO_SPLASH=1
 
-  data_directory="$XDG_DATA_HOME/steam-asahi"
+  steam_directory="$XDG_DATA_HOME/Steam"
+  client="$steam_directory/steamrt64/steam"
   rootfs_directory="$XDG_DATA_HOME/fex-emu/RootFS"
   mkdir -p "$rootfs_directory"
   touch "$rootfs_directory/test.sqsh"
+  mkdir -p "$steam_directory"
+  touch "$steam_directory/.steam-disable-steamrt64-client"
+  touch "$steam_directory/.steam-enable-steamrt64-client"
 
   ${lib.meta.getExe package} \
     'steam://open/games?filter=ready to play' \
@@ -79,8 +91,15 @@ runCommand "steam-asahi-launcher-test" { } ''
     "$HOME/audio-warning"
   cp "$HOME/muvm-arguments" "$HOME/steam-arguments"
 
-  test -f "$data_directory/bootstrap-installed"
-  test -f "$data_directory/steam-launcher/bin_steam.sh"
+  test -x "$client"
+  test ! -e "$steam_directory/.steam-disable-steamrt64-client"
+  test ! -e "$steam_directory/.steam-enable-steamrt64-client"
+  grep -Fx publicbeta "$steam_directory/package/beta"
+  test "$(readlink "$HOME/.steam/root")" = "$steam_directory"
+  test "$(readlink "$HOME/.steam/steam")" = "$steam_directory"
+  grep -Fx "$client" "$HOME/steam-arguments"
+  test ! -e "$XDG_DATA_HOME/steam-asahi/steam-launcher"
+  test ! -e "$steam_directory/ubuntu12_32/steam"
   grep -Fx -- '--gpu-mode=drm' "$HOME/steam-arguments"
   grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/steam-arguments"
   grep -Fx -- '--mem=4096' "$HOME/steam-arguments"
@@ -106,10 +125,30 @@ runCommand "steam-asahi-launcher-test" { } ''
     "$HOME/steam-arguments"
   grep -F -- '-fex-steam.sh' "$HOME/steam-arguments"
 
-  # A complete bootstrap is preserved on subsequent launches.
-  printf '%s\n' preserved > "$data_directory/steam-launcher/bin_steam.sh"
+  # Preserve self-updates while restoring the selected beta channel
+  printf '%s\n' preserved > "$client"
+  printf '%s\n' public > "$steam_directory/package/beta"
   ${lib.meta.getExe package}
-  grep -Fx preserved "$data_directory/steam-launcher/bin_steam.sh"
+  grep -Fx preserved "$client"
+  grep -Fx publicbeta "$steam_directory/package/beta"
+
+  # Reuse an existing Steam installation outside XDG_DATA_HOME
+  relocated="$HOME/existing Steam library"
+  mv "$steam_directory" "$relocated"
+  ln -sfn "$relocated" "$HOME/.steam/steam"
+  ln -sfn "$relocated" "$HOME/.steam/root"
+  ${lib.meta.getExe package}
+  grep -Fx "$relocated/steamrt64/steam" "$HOME/muvm-arguments"
+  grep -Fx preserved "$relocated/steamrt64/steam"
+  test ! -e "$steam_directory"
+
+  # The real bootstrap is an unpatched x86_64 ELF, suitable for FEX
+  client=${steam-x86_64-client}/share/steam-x86_64-client/steamrt64/steam
+  test -x "$client"
+  test "$(od -An -tx1 -j4 -N1 "$client" | tr -d ' ')" = 02
+  test "$(od -An -tx1 -j18 -N2 "$client" | tr -d ' ')" = 3e00
+  test "$(sha256sum "$client" | cut -d' ' -f1)" = \
+    "$(unzip -p ${steam-x86_64-client.src} steamrt64/steam | sha256sum | cut -d' ' -f1)"
 
   diagnostic_command='printf "%s\n" "hello world"'
   ${lib.meta.getExe package} --fex "$diagnostic_command"

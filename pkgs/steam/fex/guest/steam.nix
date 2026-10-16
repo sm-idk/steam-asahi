@@ -14,7 +14,16 @@
     }
 
     configure_guest_environment "''${STEAM_ASAHI_GUEST_UID}"
-    exec "$@"
+    # Match Valve's x64 entry point when leaving a legacy Scout environment
+    unset -v STEAM_RUNTIME STEAM_RUNTIME_LIBRARY_PATH
+
+    # Steam requests a restart after updating itself or its runtime
+    local status
+    while true; do
+      status=0
+      "$@" || status=$?
+      ((status == 42)) || return "''${status}"
+    done
   }
 
   if [[ "''${BASH_SOURCE[0]}" == "$0" ]]; then

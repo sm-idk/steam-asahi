@@ -15,8 +15,10 @@ from common import (
     LauncherError,
     copy_bootstrap,
     exec_guest,
+    executable,
     muvm_arguments,
     show_startup_splash,
+    steam_directory,
     warn_missing_audio_socket,
     write_managed_value,
     xdg_home,
@@ -30,15 +32,15 @@ class FexLauncher:
     def __init__(self, configuration: FexConfiguration) -> None:
         self.config = configuration
         self.home = Path.home()
-        self.data_home = xdg_home("XDG_DATA_HOME", ".local/share")
-        self.config_home = xdg_home("XDG_CONFIG_HOME", ".config")
-        self.data = self.data_home / "steam-asahi"
+        self.steam = steam_directory(
+            self.home, xdg_home("XDG_DATA_HOME", ".local/share")
+        )
+        self.client = self.steam / "steamrt64"
 
     def ensure_fex_rootfs(
         self, extra_environment: Mapping[str, str] | None = None
     ) -> None:
-        environment = dict(os.environ)
-        environment.update(extra_environment or {})
+        environment = os.environ | (extra_environment or {})
         if environment.get("FEX_ROOTFS"):
             return
         data_home = xdg_home(
@@ -77,9 +79,9 @@ class FexLauncher:
             for path in rootfs.iterdir():
                 # Bash's original glob ignored hidden entries
                 if not path.name.startswith(".") and (
-                    path.is_dir()
+                    path.info.is_dir()
                     or (
-                        path.is_file()
+                        path.info.is_file()
                         and path.suffix in (".ero", ".img", ".sqsh")
                     )
                 ):
@@ -162,15 +164,30 @@ class FexLauncher:
             *arguments,
         ]
 
-    def install_steam_bootstrap(self) -> None:
-        marker = self.data / "bootstrap-installed"
-        destination = self.data / "steam-launcher"
-        if marker.is_file() and (destination / "bin_steam.sh").is_file():
+    def install_client_bootstrap(self) -> None:
+        if executable(self.client / "steam"):
             return
-        print("Setting up Steam bootstrap...")
-        copy_bootstrap(self.config["STEAM_BOOTSTRAP"], destination)
-        write_managed_value(marker, "ok")
-        print("Steam bootstrap ready.")
+        print("Installing the pinned x86_64 Steam beta bootstrap...")
+        copy_bootstrap(self.config["CLIENT_BOOTSTRAP"], self.client)
+
+    def configure_steam_state(self) -> None:
+        beta = self.steam / "package/beta"
+        beta.parent.mkdir(parents=True, exist_ok=True)
+        channel = self.config["CLIENT_UPDATE_CHANNEL"]
+        write_managed_value(beta, channel)
+        # The client honors Valve's opt-out even when launched directly
+        # Remove our obsolete opt-in marker from earlier launcher versions too
+        for marker in (
+            ".steam-disable-steamrt64-client",
+            ".steam-enable-steamrt64-client",
+        ):
+            (self.steam / marker).unlink(missing_ok=True)
+        directory = self.home / ".steam"
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in ("root", "steam"):
+            link = directory / name
+            if not link.exists(follow_symlinks=False):
+                link.symlink_to(self.steam)
 
     def main(self, arguments: list[str]) -> None:
         if Path(self.config["MUVM_HOST_MOUNT"]).is_dir():
@@ -178,17 +195,12 @@ class FexLauncher:
                 "Already inside a muvm guest. Exit FEXBash and run "
                 "steam-asahi on the host."
             )
-        steam_environment = {
-            name: value
-            for argument in self.config["EXTRA_ENVIRONMENT_ARGS"][1::2]
-            for name, _, value in [argument.partition("=")]
-        }
-        self.ensure_fex_rootfs(
-            None if arguments[:1] == ["--fex"] else steam_environment
-        )
-        if arguments[:1] == ["--fex"]:
-            if len(arguments) != 2:
-                raise LauncherError("usage: steam-asahi --fex '<command>'")
+        diagnostic = arguments[:1] == ["--fex"]
+        if diagnostic and len(arguments) != 2:
+            raise LauncherError("usage: steam-asahi --fex '<command>'")
+        steam_environment = self.config["EXTRA_ENVIRONMENT"]
+        self.ensure_fex_rootfs(None if diagnostic else steam_environment)
+        if diagnostic:
             exec_guest(
                 self.muvm_arguments()
                 + self.fex_arguments(
@@ -200,24 +212,25 @@ class FexLauncher:
         warn_missing_audio_socket()
         show_startup_splash(
             self.config["YAD"],
-            self.home / ".local/share/Steam/logs/cef_log.txt",
+            self.steam / "logs/cef_log.txt",
             10,
             "Starting Steam (microVM + FEX)...",
         )
-        self.install_steam_bootstrap()
-        print("Launching Steam via muvm + FEX...")
+        self.install_client_bootstrap()
+        self.configure_steam_state()
+        print("Launching 64-bit Steam beta via muvm + FEX...")
         exec_guest(
             self.muvm_arguments(
                 {
                     "PRESSURE_VESSEL_FILESYSTEMS_RO": PRESSURE_VESSEL_FILESYSTEMS_RO,
                     "STEAM_ASAHI_GUEST_UID": str(os.geteuid()),
+                    **steam_environment,
                 }
             )
-            + self.config["EXTRA_ENVIRONMENT_ARGS"]
             + self.fex_arguments(
                 self.config["FEX_STEAM_SCRIPT"],
                 [
-                    str(self.data / "steam-launcher/bin_steam.sh"),
+                    str(self.client / "steam"),
                     *STEAM_CLIENT_ARGS,
                     *arguments,
                 ],

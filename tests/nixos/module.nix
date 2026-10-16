@@ -188,8 +188,6 @@ assert
     FEX_MULTIBLOCK = "0";
     GTK_IM_MODULE = "xim";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    STEAMOS = "1";
-    STEAM_RUNTIME = "1";
   };
 assert
   arm64.config.programs.steam-asahi.extraEnv == {
@@ -204,8 +202,6 @@ assert
     GTK_IM_MODULE = "xim";
     MANGOHUD = "1";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    STEAMOS = "1";
-    STEAM_RUNTIME = "1";
   };
 assert
   customized.config.programs.steam-asahi.package.extraEnv == {
@@ -213,8 +209,6 @@ assert
     MANGOHUD = "1";
     PACKAGE_ENVIRONMENT = "preserved";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
-    STEAMOS = "1";
-    STEAM_RUNTIME = "1";
   };
 assert
   customized.config.programs.steam-asahi.package.cpuList == [

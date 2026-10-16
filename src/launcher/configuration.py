@@ -1,6 +1,5 @@
 """Validate Nix's JSON at the boundary before preparing launcher state"""
 
-from itertools import batched
 from pathlib import Path
 from typing import Annotated, Literal, TypedDict, cast
 
@@ -8,9 +7,12 @@ import msgspec
 
 from common import LauncherError
 
-type Argument = Annotated[str, msgspec.Meta(pattern=r"^[^\x00]*$")]
+type Argument = Annotated[str, msgspec.Meta(pattern=r"^[^\x00]*\Z")]
 type NonemptyArgument = Annotated[
-    str, msgspec.Meta(min_length=1, pattern=r"^[^\x00]*$")
+    str, msgspec.Meta(min_length=1, pattern=r"^[^\x00]*\Z")
+]
+type EnvironmentName = Annotated[
+    str, msgspec.Meta(pattern=r"^[A-Za-z_][A-Za-z0-9_]*\Z")
 ]
 
 
@@ -47,14 +49,15 @@ class Arm64Configuration(LauncherConfiguration):
 
 class FexConfiguration(LauncherConfiguration):
     BACKEND: Literal["x86-fex"]
-    EXTRA_ENVIRONMENT_ARGS: list[Argument]
+    EXTRA_ENVIRONMENT: dict[EnvironmentName, Argument]
     FEX_BASH: NonemptyArgument
     FEX_DIAGNOSTIC_SCRIPT: NonemptyArgument
     FEX_ROOTFS_FETCHER: NonemptyArgument
     FEX_STEAM_SCRIPT: NonemptyArgument
     MUVM_HOST_MOUNT: NonemptyArgument
     MUVM_PATH: NonemptyArgument
-    STEAM_BOOTSTRAP: NonemptyArgument
+    CLIENT_BOOTSTRAP: NonemptyArgument
+    CLIENT_UPDATE_CHANNEL: NonemptyArgument
 
 
 type Configuration = Arm64Configuration | FexConfiguration
@@ -73,22 +76,6 @@ def parse_configuration(value: object) -> Configuration:
         msgspec.convert(value, type=schemas[backend], strict=True)
     except msgspec.ValidationError as error:
         raise LauncherError(str(error)) from error
-    if backend == "x86-fex":
-        arguments = cast(list[str], value["EXTRA_ENVIRONMENT_ARGS"])
-        try:
-            for flag, assignment in batched(arguments, 2, strict=True):
-                name, separator, _ = assignment.partition("=")
-                if (
-                    flag != "-e"
-                    or not separator
-                    or not name.isascii()
-                    or not name.isidentifier()
-                ):
-                    raise ValueError("invalid environment assignment")
-        except ValueError as error:
-            raise LauncherError(
-                "EXTRA_ENVIRONMENT_ARGS must contain '-e', 'NAME=value' pairs"
-            ) from error
     # Retain unknown keys too: the original configuration identifies the VM
     return cast(Configuration, value)
 

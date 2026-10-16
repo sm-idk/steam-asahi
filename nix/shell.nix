@@ -1,45 +1,41 @@
 { lib, pkgs }:
 
 let
-  x86Command = pkgs.writeShellApplication {
-    inheritPath = false;
-    name = "steam-asahi-x86";
-    text = ''
-      exec ${lib.meta.getExe pkgs.steam-asahi} "$@"
-    '';
-  };
-  arm64Command = pkgs.writeShellApplication {
-    inheritPath = false;
-    name = "steam-asahi-arm64";
-    text = ''
-      exec ${lib.meta.getExe pkgs.steam-asahi-arm64} "$@"
-    '';
-  };
-  arm64TestPackage = pkgs.steam-asahi-arm64.override {
-    customSteamHomeDir = "steam-asahi-arm64-test-home";
-  };
-  arm64TestCommand = pkgs.writeShellApplication {
-    inheritPath = false;
-    name = "steam-asahi-arm64-test";
-    text = ''
-      exec ${lib.meta.getExe arm64TestPackage} "$@"
-    '';
-  };
+  commands =
+    lib.mapAttrsToList
+      (
+        name: package:
+        pkgs.writeShellApplication {
+          inherit name;
+          inheritPath = false;
+          text = ''
+            exec ${lib.getExe package} "$@"
+          '';
+        }
+      )
+      {
+        steam-asahi-x64 = pkgs.steam-asahi;
+        steam-asahi-arm64 = pkgs.steam-asahi-arm64;
+        steam-asahi-arm64-test = pkgs.steam-asahi-arm64.override {
+          customSteamHomeDir = "steam-asahi-arm64-test-home";
+        };
+      };
 in
 pkgs.mkShellNoCC {
   UV_PYTHON = lib.meta.getExe pkgs.python315;
 
-  packages = builtins.attrValues {
-    inherit (pkgs)
-      uv
-      python315
-      muvm
-      fex
-      shellcheck
-      steam-asahi
-      ;
-    inherit x86Command arm64Command arm64TestCommand;
-  };
+  packages =
+    builtins.attrValues {
+      inherit (pkgs)
+        uv
+        python315
+        muvm
+        fex
+        shellcheck
+        steam-asahi
+        ;
+    }
+    ++ commands;
 
   shellHook = ''
     echo "steam-asahi dev shell"
@@ -47,8 +43,8 @@ pkgs.mkShellNoCC {
     echo "  FEXBash: $(command -v FEXBash || echo missing)"
     echo ""
     echo "Backend commands:"
-    echo "  steam-asahi              # x86/FEX default"
-    echo "  steam-asahi-x86          # explicit x86/FEX backend"
+    echo "  steam-asahi              # x86_64/FEX default"
+    echo "  steam-asahi-x64          # explicit x86_64/FEX backend"
     echo "  steam-asahi-arm64        # ARM64 beta, isolated state by default"
     echo "  steam-asahi-arm64-test   # ARM64 beta, separate development test state"
     echo ""
