@@ -3,12 +3,13 @@
   upstream,
   fetchFromGitHub,
   rustPlatform,
+  nix-update-script,
 }:
 let
   libkrunOverrideVersion = "1.19.6";
   isCurrent = lib.versionAtLeast upstream.version libkrunOverrideVersion;
   overridden = upstream.overrideAttrs (
-    finalAttrs: _old: {
+    finalAttrs: old: {
       version = libkrunOverrideVersion;
       src = fetchFromGitHub {
         owner = "libkrun";
@@ -19,6 +20,16 @@ let
       cargoDeps = rustPlatform.fetchCargoVendor {
         inherit (finalAttrs) src;
         hash = "sha256-SPlozqdmX0khawoFjZrqYjQ5qDY4tSVa7gpehYHUTz8=";
+      };
+      passthru = (old.passthru or { }) // {
+        updateScript = nix-update-script {
+          attrPath = "libkrun";
+          extraArgs = [
+            "--flake"
+            "--system=aarch64-linux"
+            "--override-filename=pkgs/libkrun/override.nix"
+          ];
+        };
       };
     }
   );
