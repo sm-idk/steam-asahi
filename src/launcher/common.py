@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from contextlib import suppress
+from itertools import chain
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 from uuid import uuid4
@@ -45,15 +47,34 @@ class LauncherError(RuntimeError):
 
 
 def executable(path: Path) -> bool:
-    return os.access(path, os.X_OK)
+    return path.is_file() and os.access(path, os.X_OK)
 
 
-def xdg_home(name: str, suffix: str) -> Path:
-    return Path(os.environ.get(name) or str(Path.home() / suffix))
+def xdg_home(
+    name: str,
+    suffix: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    environment = os.environ if environment is None else environment
+    if value := environment.get(name):
+        path = Path(value)
+        if path.is_absolute():
+            return path
+    # The XDG specification requires ignoring relative directory overrides
+    home = environment.get("HOME")
+    return (Path(home) if home else Path.home()) / suffix
 
 
 def run(*arguments: str | Path) -> None:
     subprocess.run(arguments, check=True)
+
+
+def steam_directory(home: Path, data_home: Path) -> Path:
+    link = home / ".steam/steam"
+    if link.exists(follow_symlinks=False):
+        return link.resolve()
+    return data_home / "Steam"
 
 
 def copy_bootstrap(source: str, destination: Path) -> None:
@@ -69,17 +90,21 @@ def install_managed_file(
     with (
         Path(source).open("rb") as source_file,
         atomic_save(
-            str(destination), file_perms=mode, part_file=f".{uuid4().hex}"
+            destination, file_perms=mode, part_file=f".{uuid4().hex}"
         ) as destination_file,
     ):
         shutil.copyfileobj(source_file, destination_file)
 
 
 def write_managed_value(destination: Path, value: str) -> None:
+    content = f"{value}\n".encode("utf-8")
+    with suppress(FileNotFoundError):
+        if destination.read_bytes() == content:
+            return
     with atomic_save(
-        str(destination), file_perms=0o600, part_file=f".{uuid4().hex}"
+        destination, file_perms=0o600, part_file=f".{uuid4().hex}"
     ) as destination_file:
-        destination_file.write(f"{value}\n".encode("utf-8"))
+        destination_file.write(content)
 
 
 def replace_symlink(target: str | Path, destination: Path) -> None:
@@ -113,10 +138,8 @@ def muvm_arguments(
         "--execute-pre",
         configuration["INIT_SCRIPT"],
         *(["--interactive"] if interactive else []),
-        *(
-            argument
-            for name, value in environment.items()
-            for argument in ("-e", f"{name}={value}")
+        *chain.from_iterable(
+            ("-e", f"{name}={value}") for name, value in environment.items()
         ),
     ]
 
@@ -159,15 +182,25 @@ def exec_guest(
         # libkrun discovers PipeWire separately, but resolves Wayland under XDG
         environment.setdefault("PIPEWIRE_RUNTIME_DIR", runtime)
         display = environment.get("WAYLAND_DISPLAY", "wayland-0")
-        wayland_socket = Path(runtime) / display
-        if wayland_socket.parent == Path(runtime) and display not in (
-            "muvm.lock",
-            "krun",
-            "hidpipe",
-            "pulse",
-            "bus",
+        # Absolute display paths already refer to the host socket
+        if (
+            display
+            and Path(display).name == display
+            and display
+            not in (
+                "..",
+                "muvm.lock",
+                "krun",
+                "hidpipe",
+                "pulse",
+                "bus",
+                "steam-asahi",
+            )
         ):
-            replace_symlink(wayland_socket, directory / display)
+            replace_symlink(Path(runtime) / display, directory / display)
+        elif display and not Path(display).is_absolute():
+            # Relative paths with directories must retain their host base
+            environment["WAYLAND_DISPLAY"] = str(Path(runtime) / display)
         environment["XDG_RUNTIME_DIR"] = str(directory)
     if reuse_only:
         # A held Steam lock can belong to a VM from another configuration
@@ -229,20 +262,23 @@ def show_startup_splash(
         return
 
     # Popen closes unrelated descriptors before returning, including the lock
-    subprocess.Popen(
-        [
-            sys.executable,
-            "-I",
-            __file__,
-            str(os.getpid()),
-            str(time.time_ns()),
-            yad,
-            str(cef_log),
-            str(hold_seconds),
-            text,
-        ],
-        close_fds=True,
-    )
+    try:
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-I",
+                __file__,
+                str(os.getpid()),
+                str(time.time_ns()),
+                yad,
+                str(cef_log),
+                str(hold_seconds),
+                text,
+            ],
+            close_fds=True,
+        )
+    except OSError as error:
+        print(f"WARNING: Startup dialog failed: {error}", file=sys.stderr)
 
 
 def watch_startup_splash(
@@ -269,18 +305,27 @@ def watch_startup_splash(
                 f"--text={text}",
             ]
         )
-        while time.monotonic() < deadline:
+        ready_deadline = None
+        while splash.poll() is None and time.monotonic() < deadline:
             try:
                 os.kill(launcher_pid, 0)
             except ProcessLookupError:
                 break
             try:
-                if cef_log.stat().st_mtime_ns > started:
-                    time.sleep(hold_seconds)
-                    break
+                if (
+                    ready_deadline is None
+                    and cef_log.stat().st_mtime_ns > started
+                ):
+                    ready_deadline = time.monotonic() + hold_seconds
             except OSError:
                 pass
-            time.sleep(1)
+            if (
+                ready_deadline is not None
+                and time.monotonic() >= ready_deadline
+            ):
+                break
+            with suppress(subprocess.TimeoutExpired):
+                splash.wait(timeout=1)
     except OSError as error:
         print(f"WARNING: Startup dialog failed: {error}", file=sys.stderr)
     finally:

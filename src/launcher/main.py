@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import signal
 import subprocess
@@ -15,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 lazy from arm64 import Arm64Launcher  # noqa: E402
 from common import LauncherError  # noqa: E402
-from configuration import parse_configuration  # noqa: E402
+from configuration import load_configuration  # noqa: E402
 lazy from fex import FexLauncher  # noqa: E402
 
 
@@ -25,8 +24,9 @@ def main() -> int:
     try:
         if os.geteuid() == 0:
             raise LauncherError("Do not run steam-asahi as root")
-        with open(sys.argv[1], encoding="utf-8") as source:
-            configuration = parse_configuration(json.load(source))
+        if len(sys.argv) < 2:
+            raise LauncherError("usage: launcher CONFIGURATION [arguments...]")
+        configuration = load_configuration(Path(sys.argv[1]))
         if configuration["BACKEND"] == "arm64":
             launcher = Arm64Launcher(configuration)
         else:
@@ -34,14 +34,14 @@ def main() -> int:
         launcher.main(sys.argv[2:])
     except KeyboardInterrupt:
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-        os.kill(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
     except subprocess.CalledProcessError as error:
         if error.returncode < 0:
             # Preserve a helper's signal termination instead of wrapping it
             signum = -error.returncode
             if signum not in (signal.SIGKILL, signal.SIGSTOP):
                 signal.signal(signum, signal.SIG_DFL)
-            os.kill(os.getpid(), signum)
+            signal.raise_signal(signum)
         return error.returncode
     except (LauncherError, OSError, ValueError, KeyError, IndexError) as error:
         print(f"ERROR: {error}", file=sys.stderr)

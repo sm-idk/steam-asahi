@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -20,6 +21,7 @@ from common import (
     replace_symlink,
     run,
     show_startup_splash,
+    steam_directory,
     warn_missing_audio_socket,
     write_managed_value,
     xdg_home,
@@ -149,9 +151,9 @@ class Arm64Launcher:
         install_managed_file(source, target, 0o600)
 
     def import_login_state(self) -> None:
-        source = self.source_data_home / "Steam"
+        source = steam_directory(self.source_home, self.source_data_home)
         paths = ("local.vdf", "config/loginusers.vdf", "config/config.vdf")
-        if source == self.steam:
+        if source.resolve() == self.steam.resolve():
             raise LauncherError(
                 "the source and isolated Steam directories are identical"
             )
@@ -181,15 +183,14 @@ class Arm64Launcher:
         beta.parent.mkdir(parents=True, exist_ok=True)
         (self.home / ".steam").mkdir(parents=True, exist_ok=True)
         channel = self.config["CLIENT_UPDATE_CHANNEL"]
-        if not beta.is_file() or beta.read_text().rstrip("\n") != channel:
-            write_managed_value(beta, channel)
+        write_managed_value(beta, channel)
         for name, target in {
             "root": self.steam,
             "sdkarm64": self.steam / "linuxarm64",
             "steam": self.steam,
         }.items():
             destination = self.home / ".steam" / name
-            if not destination.exists() and not destination.is_symlink():
+            if not destination.exists(follow_symlinks=False):
                 destination.symlink_to(target)
 
     def proton_payloads_installed(self) -> bool:
@@ -259,11 +260,7 @@ class Arm64Launcher:
             if len(arguments) == 1:
                 raise LauncherError("usage: steam-asahi --force-proton APPID")
             app_id = arguments[1]
-            if (
-                not app_id.isascii()
-                or not app_id.isdecimal()
-                or app_id.startswith("0")
-            ):
+            if re.fullmatch(r"[1-9][0-9]*", app_id) is None:
                 raise LauncherError("APPID must be a positive decimal integer")
             arguments = arguments[2:]
 

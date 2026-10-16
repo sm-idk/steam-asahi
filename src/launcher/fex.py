@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
+
+import msgspec
 
 from common import (
     PRESSURE_VESSEL_FILESYSTEMS_RO,
@@ -40,13 +41,17 @@ class FexLauncher:
         environment.update(extra_environment or {})
         if environment.get("FEX_ROOTFS"):
             return
-        data_home = Path(
-            environment.get("XDG_DATA_HOME") or str(self.data_home)
+        data_home = xdg_home(
+            "XDG_DATA_HOME", ".local/share", environment=environment
         )
-        config_home = Path(
-            environment.get("XDG_CONFIG_HOME") or str(self.config_home)
+        config_home = xdg_home(
+            "XDG_CONFIG_HOME", ".config", environment=environment
         )
-        legacy = self.home / ".fex-emu"
+        environment.update(
+            XDG_DATA_HOME=str(data_home), XDG_CONFIG_HOME=str(config_home)
+        )
+        home = Path(environment.get("HOME") or self.home)
+        legacy = home / ".fex-emu"
         if legacy.is_dir():
             data = legacy
             config_path = legacy / "Config.json"
@@ -71,18 +76,17 @@ class FexLauncher:
         if rootfs.is_dir():
             for path in rootfs.iterdir():
                 # Bash's original glob ignored hidden entries
-                if (
-                    not path.name.startswith(".")
-                    and path.exists()
-                    and (
-                        path.is_dir()
-                        or path.suffix in (".ero", ".img", ".sqsh")
+                if not path.name.startswith(".") and (
+                    path.is_dir()
+                    or (
+                        path.is_file()
+                        and path.suffix in (".ero", ".img", ".sqsh")
                     )
                 ):
                     return
         try:
-            configuration = json.loads(config_path.read_text(encoding="utf-8"))
-        except OSError, ValueError:
+            configuration = msgspec.json.decode(config_path.read_bytes())
+        except OSError, msgspec.DecodeError:
             configuration = {}
         # FEX stores options in Config; accept the legacy top-level form too
         if isinstance(configuration, dict):
@@ -129,8 +133,6 @@ class FexLauncher:
         )
         environment = {
             "PATH": path,
-            "XDG_DATA_HOME": str(self.data_home),
-            "XDG_CONFIG_HOME": str(self.config_home),
             **{
                 name: value
                 for name, value in os.environ.items()
@@ -139,6 +141,14 @@ class FexLauncher:
             },
         }
         environment.update(extra_environment or {})
+        host_environment = os.environ | environment
+        for name, suffix in (
+            ("XDG_DATA_HOME", ".local/share"),
+            ("XDG_CONFIG_HOME", ".config"),
+        ):
+            environment[name] = str(
+                xdg_home(name, suffix, environment=host_environment)
+            )
         return muvm_arguments(config, environment, emulator="fex")
 
     def fex_arguments(self, script: str, arguments: list[str]) -> list[str]:
