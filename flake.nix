@@ -34,6 +34,7 @@
       packages = lib.mapAttrs (
         system: pkgs:
         {
+          renovate = pkgs.callPackage ./nix/renovate.nix { };
           steam-asahi-options = pkgs.callPackage ./nix/options.nix {
             inherit nixpkgs;
             module = self.nixosModules.default;

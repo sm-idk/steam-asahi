@@ -2,7 +2,6 @@
 
 let
   shellFiles = lib.fileset.unions [
-    ../.github/renovate.sh
     (lib.fileset.fileFilter (file: file.hasExt "sh") ../pkgs)
     ../src/guest
     (lib.fileset.fileFilter (file: file.hasExt "sh") ../tests)
