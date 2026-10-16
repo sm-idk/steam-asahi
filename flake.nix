@@ -1,7 +1,7 @@
 {
   description = "Steam on NixOS Asahi Linux via x86/FEX or the native ARM64 beta";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs";
 
   outputs =
     { self, nixpkgs }:
