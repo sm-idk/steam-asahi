@@ -1,31 +1,34 @@
 {
   lib,
   bash,
-  writeText,
   writeShellApplication,
+  writeTextFile,
+  runtimeShell,
+  shellcheck-minimal,
 }:
 
 assert lib.asserts.assertMsg (lib.versionAtLeast bash.version "5.3")
   "steam-asahi: Bash >= 5.3 is required";
 
 let
-  commonScriptSource = ../../src/guest/common.sh;
-  commonScript = writeText "steam-asahi-common.sh" (builtins.readFile commonScriptSource);
-
-  # Keep configuration local to the shell, including indexed/associative arrays
-  # runtimeEnv exports values and is reserved for the guest's environment
   renderShell =
-    variables: path:
+    configuration: source:
     lib.concatStringsSep "\n" [
-      (lib.toShellVars ({ COMMON_SCRIPT = commonScript; } // variables))
-      (lib.removePrefix "#!/usr/bin/env bash\n" (builtins.readFile path))
+      (import ./common.nix { inherit lib; })
+      (import source { inherit lib configuration; })
     ];
+  sourceApplication =
+    name: source:
+    writeShellApplication {
+      inherit name;
+      text = renderShell { } source;
+    };
 in
 {
-  inherit commonScriptSource renderShell;
+  inherit renderShell sourceApplication;
 
-  # FEX must interpret these sources with its x86 Bash, not a Nix shebang
-  renderSource = name: path: writeText name (renderShell { } path);
+  # FEX explicitly passes these checked scripts to the rootfs's x86 Bash
+  renderSource = name: source: lib.getExe (sourceApplication name source);
 
   application =
     {
@@ -44,4 +47,17 @@ in
       }
     );
 
+  # Copied Proton tools execute inside Pressure Vessel, where /bin/sh and the
+  # runtime's commands must work before Nix libraries can be added to the path
+  posix =
+    { name, text }:
+    writeTextFile {
+      inherit name;
+      executable = true;
+      text = "#!/bin/sh\n" + text;
+      checkPhase = ''
+        ${runtimeShell} -n "$target"
+        ${lib.getExe shellcheck-minimal} --shell=sh "$target"
+      '';
+    };
 }

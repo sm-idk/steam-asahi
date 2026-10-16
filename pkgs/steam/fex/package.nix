@@ -53,17 +53,17 @@ let
       ;
   };
 
-  fexDiagnosticScript = scripts.renderSource "steam-asahi-fex-diagnostic.sh" ./guest/diagnostic.sh;
-  fexSteamScript = scripts.renderSource "steam-asahi-fex-steam.sh" ./guest/steam.sh;
+  fexDiagnostic = scripts.sourceApplication "steam-asahi-fex-diagnostic.sh" ./guest/diagnostic.nix;
+  fexSteam = scripts.sourceApplication "steam-asahi-fex-steam.sh" ./guest/steam.nix;
 
   lspciShim = scripts.application {
-    source = ./guest/lspci.sh;
+    source = ../../../lib/guest/lspci.nix;
     name = "steam-asahi-lspci";
     runtimeInputs = [ pciutils ];
   };
 
   initScript = scripts.application {
-    source = ./guest/init.sh;
+    source = ./guest/init.nix;
     name = "steam-asahi-init";
     runtimeInputs = [
       coreutils
@@ -100,9 +100,9 @@ let
         ]) extraEnv
       );
       FEX_BASH = lib.meta.getExe' fex "FEXBash";
-      FEX_DIAGNOSTIC_SCRIPT = fexDiagnosticScript;
+      FEX_DIAGNOSTIC_SCRIPT = lib.getExe fexDiagnostic;
       FEX_ROOTFS_FETCHER = lib.meta.getExe' fex "FEXRootFSFetcher";
-      FEX_STEAM_SCRIPT = fexSteamScript;
+      FEX_STEAM_SCRIPT = lib.getExe fexSteam;
       INIT_SCRIPT = lib.meta.getExe initScript;
       MUVM = lib.meta.getExe muvm;
       MUVM_HOST_MOUNT = muvmHostMount;
@@ -136,6 +136,13 @@ in
   desktopName = "Steam (Asahi)";
   comment = "Steam on Apple Silicon via muvm + FEX-Emu";
   passthru = {
+    shellApplications = {
+      inherit launcher;
+      init = initScript;
+      lspci = lspciShim;
+      diagnostic = fexDiagnostic;
+      steam = fexSteam;
+    };
     backend = "x86-fex";
   };
 }
