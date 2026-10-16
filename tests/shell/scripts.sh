@@ -161,7 +161,7 @@ test_sourceability() {
       || fail 'glibc command was not linked'
   )
 
-  python3.14 -I -B \
+  python3.15 -I -B \
     "${REPOSITORY_ROOT}/tests/shell/launcher/imports.py" \
     "${REPOSITORY_ROOT}/src/launcher"
 
@@ -478,7 +478,7 @@ EOF
       TOOL_MANIFEST="${launcher_root}/toolmanifest.vdf" \
       XDG_DATA_HOME="${home}/data" \
       YAD="${launcher_root}/yad" \
-      python3.14 -I -B \
+      python3.15 -I -B \
         "${REPOSITORY_ROOT}/tests/shell/launcher/run.py" \
         "${REPOSITORY_ROOT}" "$@"
   }

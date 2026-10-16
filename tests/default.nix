@@ -14,7 +14,7 @@ let
             coreutils
             util-linux
             ;
-          python314 = pkgs.python314.withPackages (packages: [
+          python315 = pkgs.python315.withPackages (packages: [
             packages.boltons
             packages.msgspec
           ]);

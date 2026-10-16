@@ -8,7 +8,7 @@
   mkLauncherPackage,
   writeShellApplication,
   replaceVars,
-  python314,
+  python315,
   steam-arm64-client,
   steam-unwrapped,
   muvm,
@@ -136,7 +136,7 @@ let
 
   protonConfigurator =
     let
-      python = python314.withPackages (packages: [
+      python = python315.withPackages (packages: [
         packages.boltons
         packages.vdf
       ]);
@@ -162,7 +162,7 @@ let
     inherit (armProton) displayName toolName;
   };
 
-  launcher = (mkHostLauncher.override { inherit python314; }) {
+  launcher = (mkHostLauncher.override { inherit python315; }) {
     runtimeInputs = [
       coreutils
     ];

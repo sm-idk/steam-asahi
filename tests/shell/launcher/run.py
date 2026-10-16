@@ -1,6 +1,6 @@
-#!/usr/bin/env python3.14
+#!/usr/bin/env python3.15
 # /// script
-# requires-python = "==3.14.*"
+# requires-python = "==3.15.*"
 # dependencies = []
 # ///
 

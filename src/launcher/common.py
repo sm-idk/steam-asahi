@@ -1,8 +1,3 @@
-# /// script
-# requires-python = "==3.14.*"
-# dependencies = ["boltons"]
-# ///
-
 """Host file and process helpers shared by both Steam launchers"""
 
 from __future__ import annotations
@@ -21,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 from uuid import uuid4
 
-from boltons.fileutils import atomic_save
+lazy from boltons.fileutils import atomic_save
 
 if TYPE_CHECKING:
     from configuration import LauncherConfiguration
@@ -154,7 +149,9 @@ def exec_guest(
         ).encode()
         instance = hashlib.sha256(identity).hexdigest()[:16]
         directory = Path(runtime) / "steam-asahi" / instance
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        directory.mkdir(
+            mode=0o700, parents=True, parent_mode=0o700, exist_ok=True
+        )
         # Upstream muvm uses XDG_RUNTIME_DIR for its locks and control sockets
         # Preserve host audio and session-bus discovery through socket links
         for name in ("pulse", "bus"):

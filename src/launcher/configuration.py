@@ -1,8 +1,3 @@
-# /// script
-# requires-python = "==3.14.*"
-# dependencies = ["boltons", "msgspec"]
-# ///
-
 """Validate Nix's JSON at the boundary before preparing launcher state"""
 
 from typing import Literal, TypedDict, cast

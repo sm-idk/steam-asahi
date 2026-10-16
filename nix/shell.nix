@@ -27,10 +27,12 @@ let
   };
 in
 pkgs.mkShellNoCC {
+  UV_PYTHON = lib.meta.getExe pkgs.python315;
+
   packages = builtins.attrValues {
     inherit (pkgs)
       uv
-      python314
+      python315
       muvm
       fex
       shellcheck

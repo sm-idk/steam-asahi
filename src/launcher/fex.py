@@ -1,8 +1,3 @@
-# /// script
-# requires-python = "==3.14.*"
-# dependencies = ["boltons", "msgspec"]
-# ///
-
 """Prepare FEX and Steam state, then launch Steam through muvm and FEX"""
 
 from __future__ import annotations
