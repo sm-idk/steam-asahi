@@ -13,10 +13,11 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 from uuid import uuid4
@@ -26,7 +27,13 @@ from boltons.fileutils import atomic_save
 if TYPE_CHECKING:
     from configuration import LauncherConfiguration
 
+# The command the Steam client bakes into the shortcuts it generates. It
+# resolves only inside the microVM, so both launchers replace it with their own
+# and record the change with the marker below
+CLIENT_COMMAND_NAME = "steam"
+MANAGED_ENTRY_MARKER = "X-SteamAsahi-Managed=true"
 PRESSURE_VESSEL_FILESYSTEMS_RO = "/nix:/run/opengl-driver"
+SHORTCUT_REFRESH_INTERVAL_SECONDS = 5
 STEAM_CLIENT_ARGS = ("-cef-force-occlusion",)
 HOST_LOCALE_VARIABLES = (
     "LANGUAGE",
@@ -80,11 +87,91 @@ def install_managed_file(
         shutil.copyfileobj(source_file, destination_file)
 
 
-def write_managed_value(destination: Path, value: str) -> None:
+def write_managed_value(
+    destination: Path, value: str, mode: int = 0o600
+) -> None:
     with atomic_save(
-        str(destination), file_perms=0o600, part_file=f".{uuid4().hex}"
+        str(destination), file_perms=mode, part_file=f".{uuid4().hex}"
     ) as destination_file:
-        destination_file.write(f"{value}\n".encode("utf-8"))
+        # Preserve bytes a client wrote that are not valid UTF-8
+        destination_file.write(
+            f"{value}\n".encode("utf-8", errors="surrogateescape")
+        )
+
+
+def desktop_entry_lines(path: Path) -> list[str]:
+    contents = path.read_text(encoding="utf-8", errors="surrogateescape")
+    lines = contents.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def desktop_entry_runs_client(path: Path) -> bool:
+    return any(
+        line.startswith(f"Exec={CLIENT_COMMAND_NAME} steam://")
+        for line in desktop_entry_lines(path)
+    )
+
+
+def desktop_entry_is_managed(path: Path) -> bool:
+    return any(
+        line == MANAGED_ENTRY_MARKER for line in desktop_entry_lines(path)
+    )
+
+
+def install_managed_desktop_entry(
+    source: Path, destination: Path, launcher_command: str
+) -> None:
+    # The in-place repair passes one path as both source and destination
+    mode = stat.S_IMODE(source.stat().st_mode)
+    lines = []
+    for line in desktop_entry_lines(source):
+        if line == MANAGED_ENTRY_MARKER:
+            continue
+        if line.startswith(f"Exec={CLIENT_COMMAND_NAME} "):
+            line = (
+                f"Exec={launcher_command}"
+                f"{line.removeprefix(f'Exec={CLIENT_COMMAND_NAME}')}"
+            )
+        lines.append(line)
+    write_managed_value(
+        destination, "\n".join([*lines, MANAGED_ENTRY_MARKER]), mode
+    )
+
+
+def start_desktop_entry_watcher(refresh: Callable[[], None]) -> None:
+    """Refresh desktop entries now and while the launcher process runs.
+
+    Shortcuts appear while the client runs, and the launcher execs into muvm,
+    so the refresh has to come from a process that outlives that exec.
+    """
+    launcher_pid = os.getpid()
+    refresh()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if os.fork() != 0:
+        return
+    try:
+        null = os.open(os.devnull, os.O_RDWR)
+        for descriptor in (1, 2):
+            os.dup2(null, descriptor)
+        while True:
+            try:
+                os.kill(launcher_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(SHORTCUT_REFRESH_INTERVAL_SECONDS)
+            try:
+                refresh()
+            except OSError:
+                pass
+        try:
+            refresh()
+        except OSError:
+            pass
+    finally:
+        os._exit(0)
 
 
 def replace_symlink(target: str | Path, destination: Path) -> None:

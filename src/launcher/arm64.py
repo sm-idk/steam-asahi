@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -18,13 +19,16 @@ from common import (
     STEAM_CLIENT_ARGS,
     LauncherError,
     copy_bootstrap,
+    desktop_entry_is_managed,
     exec_guest,
     executable,
+    install_managed_desktop_entry,
     install_managed_file,
     muvm_arguments,
     replace_symlink,
     run,
     show_startup_splash,
+    start_desktop_entry_watcher,
     warn_missing_audio_socket,
     write_managed_value,
     xdg_home,
@@ -36,6 +40,8 @@ from configuration import Arm64Configuration
 # verification would restore their original bytes and request another restart
 # This flag leaves update checks enabled while preserving the local repairs
 ARM64_CLIENT_ARGS = (*STEAM_CLIENT_ARGS, "-noverifyfiles")
+# The prefix the client gives the artwork of the shortcuts it generates
+CLIENT_ICON_PREFIX = "steam_icon_"
 
 
 class Arm64Launcher:
@@ -239,6 +245,80 @@ class Arm64Launcher:
             # Optional log rotation must not prevent Steam from launching
             pass
 
+    def entry_needs_export(self, source: Path, target: Path) -> bool:
+        # A mirrored entry is refreshed when it is missing, older than the
+        # client's own entry, or no longer carries that entry's mode. Without
+        # the last case a mirror written with the wrong mode would never be
+        # repaired, because it is always the newer file.
+        if not target.is_file():
+            return True
+        if source.stat().st_mtime_ns > target.stat().st_mtime_ns:
+            return True
+        return stat.S_IMODE(source.stat().st_mode) != stat.S_IMODE(
+            target.stat().st_mode
+        )
+
+    def export_desktop_entries(self) -> None:
+        # Both shortcut locations the client writes to live below the isolated
+        # home, where the host's application launcher never looks. Mirror them
+        # into the real data home and drop the exports whose originals are
+        # gone.
+        config = self.config
+        prefix = f"{config['LAUNCHER_COMMAND']}-"
+        sources = [
+            self.home / "Desktop",
+            self.home / ".local/share/applications",
+        ]
+        target_directory = self.source_data_home / "applications"
+        target_directory.mkdir(parents=True, exist_ok=True)
+        for source_directory in sources:
+            for source_path in source_directory.glob("*.desktop"):
+                target_path = target_directory / f"{prefix}{source_path.name}"
+                if not self.entry_needs_export(source_path, target_path):
+                    continue
+                install_managed_desktop_entry(
+                    source_path, target_path, config["LAUNCHER_COMMAND"]
+                )
+        for target_path in target_directory.glob(f"{prefix}*.desktop"):
+            if not desktop_entry_is_managed(target_path):
+                continue
+            entry_name = target_path.name.removeprefix(prefix)
+            if any(
+                (source_directory / entry_name).is_file()
+                for source_directory in sources
+            ):
+                continue
+            target_path.unlink(missing_ok=True)
+
+    def export_shortcut_icons(self) -> None:
+        # Exported entries reference per-game icons by name, so the artwork has
+        # to follow them out of the isolated home into the same theme
+        # directories. Nothing is removed here: artwork that no entry names is
+        # already invisible.
+        source_directory = self.home / ".local/share/icons"
+        target_directory = self.source_data_home / "icons"
+        for source_path in source_directory.glob(
+            f"*/*/apps/{CLIENT_ICON_PREFIX}*"
+        ):
+            relative_path = source_path.relative_to(source_directory)
+            target_path = target_directory / relative_path
+            if (
+                target_path.is_file()
+                and source_path.stat().st_mtime_ns
+                <= target_path.stat().st_mtime_ns
+            ):
+                continue
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            install_managed_file(source_path, target_path, 0o644)
+
+    def export_client_shortcuts(self) -> None:
+        # An isolated home pointed back at the caller's own data home would
+        # export each entry onto itself.
+        if self.source_data_home == self.home / ".local/share":
+            return
+        self.export_shortcut_icons()
+        self.export_desktop_entries()
+
     def main(self, arguments: list[str]) -> None:
         self.initialize_environment()
         import_login = arguments[:1] == ["--import-login"]
@@ -256,6 +336,9 @@ class Arm64Launcher:
             self.run_guest(arguments[1:])
 
         print(f"Using isolated ARM64 Steam home: {self.home}")
+        # Start the watcher before taking the lock so it cannot inherit the
+        # lock descriptor and keep the lock after the client exits
+        start_desktop_entry_watcher(self.export_client_shortcuts)
         self.acquire_lock(
             ["--import-login", *arguments] if import_login else arguments
         )
@@ -301,11 +384,15 @@ class Arm64Launcher:
             "Starting native ARM64 Steam (4K-page microVM)...",
         )
         print("Launching native ARM64 Steam via muvm...")
+        # muvm proxies a forwarded command's stdio only when asked, and that
+        # proxy rejects the /dev/null an application launcher provides; only
+        # the --guest diagnostic above asks for the proxy
         self.run_guest(
             [
                 "--steam",
                 str(self.client / "steam"),
                 *ARM64_CLIENT_ARGS,
                 *arguments,
-            ]
+            ],
+            interactive=False,
         )

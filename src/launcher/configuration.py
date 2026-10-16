@@ -13,6 +13,7 @@ from common import LauncherError
 
 
 class LauncherConfiguration(TypedDict):
+    LAUNCHER_COMMAND: str
     MUVM: str
     INIT_SCRIPT: str
     YAD: str
