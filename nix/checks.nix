@@ -7,7 +7,23 @@
 }:
 
 let
-  sources = import ./sources.nix { inherit (pkgs) lib; };
+  inherit (pkgs) lib;
+  sources = import ./sources.nix { inherit lib; };
+  applications =
+    lib.mapAttrs' (
+      name: value: lib.nameValuePair "fex-${name}" value
+    ) pkgs.steam-asahi.shellApplications
+    // lib.mapAttrs' (
+      name: value: lib.nameValuePair "arm64-${name}" value
+    ) pkgs.steam-asahi-arm64.shellApplications
+    // {
+      renovate = pkgs.callPackage ./renovate.nix { };
+    };
+  # Check the final text without building target-only guest dependencies
+  renderedScripts = lib.mapAttrsToList (
+    name: application:
+    pkgs.writeText "${name}.sh" (builtins.unsafeDiscardStringContext application.text)
+  ) applications;
 in
 (import ../tests {
   inherit pkgs nixpkgs module;
@@ -15,8 +31,19 @@ in
 })
 // {
   formatting = formatter.check source;
-  shellcheck = pkgs.testers.shellcheck {
-    name = "steam-asahi";
-    src = sources.shell;
-  };
+  shellcheck =
+    pkgs.runCommand "steam-asahi-shellcheck"
+      {
+        nativeBuildInputs = [
+          pkgs.bash
+          pkgs.shellcheck
+        ];
+      }
+      ''
+        for script in ${lib.escapeShellArgs renderedScripts}; do
+          bash -n "$script"
+          shellcheck "$script"
+        done
+        touch "$out"
+      '';
 }

@@ -6,7 +6,6 @@ pkgs.treefmt.withConfig {
       nixf-diagnose
       nixfmt
       ruff
-      shfmt
       ;
   };
   settings = {
@@ -38,23 +37,6 @@ pkgs.treefmt.withConfig {
         command = lib.meta.getExe pkgs.ruff;
         includes = [ "*.py" ];
         options = [ "format" ];
-      };
-      shell = {
-        command = lib.meta.getExe pkgs.shfmt;
-        includes = [
-          "src/guest/*.sh"
-          "pkgs/steam/fex/guest/*.sh"
-          "pkgs/steam/arm64/guest/*.sh"
-          "pkgs/steam/arm64/proton/run"
-          "pkgs/steam/arm64/proton/wrapper"
-        ];
-        options = [
-          "--write"
-          "--indent"
-          "2"
-          "--case-indent"
-          "--binary-next-line"
-        ];
       };
       nixfmt = {
         command = lib.meta.getExe pkgs.nixfmt;

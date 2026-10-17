@@ -75,13 +75,13 @@ let
   };
 
   lspciShim = scripts.application {
-    source = ./guest/lspci.sh;
+    source = ../../../lib/guest/lspci.nix;
     name = "steam-asahi-lspci";
     runtimeInputs = [ pciutils ];
   };
 
   initScript = scripts.application {
-    source = ./guest/init.sh;
+    source = ./guest/init.nix;
     name = "steam-asahi-arm64-init";
     runtimeInputs = [
       coreutils
@@ -122,7 +122,7 @@ let
   };
 
   guestLauncher = scripts.application {
-    source = ./guest/guest.sh;
+    source = ./guest/guest.nix;
     name = "steam-asahi-arm64-guest";
     runtimeInputs = [
       coreutils
@@ -132,6 +132,15 @@ let
     configuration = {
       NATIVE_LIBRARY_PATH = "${nativeRuntime}/lib";
     };
+  };
+
+  protonRunner = scripts.posix {
+    name = "run-proton";
+    text = import ./proton/run.nix { inherit lib; };
+  };
+  protonWrapper = scripts.posix {
+    name = "steam-asahi-proton";
+    text = import ./proton/wrapper.nix { inherit lib; };
   };
 
   protonConfigurator =
@@ -181,9 +190,9 @@ let
       MUVM = lib.meta.getExe muvm;
       PROTON_DIRECTORY = armProton.protonDirectory;
       PROTON_CONFIGURATOR = lib.meta.getExe protonConfigurator;
-      PROTON_RUNNER = "${./proton/run}";
+      PROTON_RUNNER = "${protonRunner}";
       PROTON_TOOL_NAME = armProton.toolName;
-      PROTON_WRAPPER = "${./proton/wrapper}";
+      PROTON_WRAPPER = "${protonWrapper}";
       RUNTIME_APP_ID = armProton.runtimeAppId;
       RUNTIME_DIRECTORY = armProton.runtimeDirectory;
       TOOL_MANIFEST = "${./proton/toolmanifest.vdf}";
@@ -214,6 +223,17 @@ in
       nativeRuntime
       steam-arm64-client
       ;
+    shellApplications = {
+      inherit
+        launcher
+        protonRunner
+        protonWrapper
+        protonConfigurator
+        ;
+      init = initScript;
+      lspci = lspciShim;
+      guest = guestLauncher;
+    };
     backend = "arm64";
     proton = armProton;
   }

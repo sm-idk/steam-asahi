@@ -1,24 +1,20 @@
 { lib }:
 
 let
-  shellFiles = lib.fileset.unions [
-    (lib.fileset.fileFilter (file: file.hasExt "sh") ../pkgs)
-    ../src/guest
-    (lib.fileset.fileFilter (file: file.hasExt "sh") ../tests)
-    ../pkgs/steam/arm64/proton/run
-    ../pkgs/steam/arm64/proton/wrapper
-  ];
+  launcherFiles = lib.fileset.fileFilter (
+    file: file.hasExt "py" || file.hasExt "capnp"
+  ) ../src/launcher;
 in
 {
-  shell = lib.fileset.toSource {
-    root = ../.;
-    fileset = shellFiles;
+  launcher = lib.fileset.toSource {
+    root = ../src/launcher;
+    fileset = launcherFiles;
   };
+
   shellTests = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [
-      shellFiles
-      ../src/launcher
+      launcherFiles
       ../tests/shell/launcher/imports.py
       ../tests/shell/launcher/run.py
     ];
