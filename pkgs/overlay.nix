@@ -36,7 +36,12 @@ final: prev:
     upstream = prev.libkrunfw;
   };
   muvm = import ./muvm/override.nix {
-    inherit (final) fetchFromGitHub rustPlatform nix-update-script;
+    inherit (final)
+      lib
+      fetchFromGitHub
+      rustPlatform
+      nix-update-script
+      ;
     upstream = prev.muvm;
   };
 }

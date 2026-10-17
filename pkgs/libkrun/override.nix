@@ -35,6 +35,13 @@ let
   );
 
 in
-lib.warnIf isCurrent ''
-  libkrun >= ${libkrunOverrideVersion} is now in nixpkgs; remove the libkrun override.
-'' (if isCurrent then upstream else overridden)
+(lib.warnIf isCurrent ''
+  libkrun >= ${libkrunOverrideVersion} is now in nixpkgs; its version pin can be removed while retaining the portal transport patch.
+'' (if isCurrent then upstream else overridden)).overrideAttrs
+  (old: {
+    patches = (old.patches or [ ]) ++ [ ./portal-remotes.patch ];
+    postPatch = (old.postPatch or "") + ''
+      cp ${./portal_registry.rs} src/rutabaga_gfx/src/cross_domain/portal_registry.rs
+      cp ${../../lib/transport/unix_stream.rs} src/rutabaga_gfx/src/cross_domain/sys/unix_stream.rs
+    '';
+  })

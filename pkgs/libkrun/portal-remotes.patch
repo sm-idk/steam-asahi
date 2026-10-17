@@ -1,0 +1,590 @@
+--- a/src/devices/src/virtio/fs/linux/passthrough.rs
++++ b/src/devices/src/virtio/fs/linux/passthrough.rs
+@@ -1775,6 +1775,9 @@
+         value: &[u8],
+         flags: u32,
+     ) -> io::Result<()> {
++        if name == c"user.steam_asahi.host_identity.v1" {
++            return Err(io::Error::from_raw_os_error(libc::EPERM));
++        }
+         if !self.cfg.xattr {
+             return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+         }
+@@ -1827,6 +1830,29 @@
+             return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+         }
+
++        // Host identity comes from the server's pinned inode, not the guest's
++        // FUSE device number or a caller-writable extended attribute
++        if name == c"user.steam_asahi.host_identity.v1" {
++            let (metadata, _) = self.do_getattr(inode)?;
++            let kind = metadata.st_mode & libc::S_IFMT;
++            if kind != libc::S_IFREG && kind != libc::S_IFDIR {
++                return Err(io::Error::from_raw_os_error(libc::EOPNOTSUPP));
++            }
++            let mut value = Vec::with_capacity(32);
++            value.extend_from_slice(b"SAFI0001");
++            value.extend_from_slice(&(metadata.st_dev as u64).to_le_bytes());
++            value.extend_from_slice(&(metadata.st_ino as u64).to_le_bytes());
++            value.extend_from_slice(&(kind as u32).to_le_bytes());
++            value.extend_from_slice(&0u32.to_le_bytes());
++            return if size == 0 {
++                Ok(GetxattrReply::Count(value.len() as u32))
++            } else if (size as usize) < value.len() {
++                Err(io::Error::from_raw_os_error(libc::ERANGE))
++            } else {
++                Ok(GetxattrReply::Value(value))
++            };
++        }
++
+         let mut buf = vec![0; size as usize];
+
+         // The f{set,get,remove,list}xattr functions don't work on an fd opened with `O_PATH` so we
+@@ -1911,6 +1937,9 @@
+     }
+
+     fn removexattr(&self, _ctx: Context, inode: Inode, name: &CStr) -> io::Result<()> {
++        if name == c"user.steam_asahi.host_identity.v1" {
++            return Err(io::Error::from_raw_os_error(libc::EPERM));
++        }
+         if !self.cfg.xattr {
+             return Err(io::Error::from_raw_os_error(libc::ENOSYS));
+         }
+--- a/src/rutabaga_gfx/src/cross_domain/cross_domain_protocol.rs
++++ b/src/rutabaga_gfx/src/cross_domain/cross_domain_protocol.rs
+@@ -99,6 +99,15 @@
+     pub protocol_version: u32,
+ }
+
++// Capset version 2 adds a registration token without changing the resource
++// message format selected by init.protocol_version
++#[repr(C)]
++#[derive(Copy, Clone, Default, IntoBytes, Immutable, FromBytes)]
++pub struct CrossDomainInitV2 {
++    pub init: CrossDomainInitV1,
++    pub registration_token: [u8; 16],
++}
++
+ #[repr(C)]
+ #[derive(Copy, Clone, Default, IntoBytes, Immutable, FromBytes)]
+ pub struct CrossDomainInitV0 {
+--- a/src/rutabaga_gfx/src/cross_domain/mod.rs
++++ b/src/rutabaga_gfx/src/cross_domain/mod.rs
+@@ -59,6 +59,8 @@
+ use crate::RutabagaGrallocFlags;
+
+ mod cross_domain_protocol;
++#[cfg(target_os = "linux")]
++mod portal_registry;
+ mod sys;
+
+ #[allow(dead_code)]
+@@ -142,6 +144,8 @@
+ }
+
+ struct CrossDomainWorker {
++    #[cfg(target_os = "linux")]
++    portal_readiness: Option<portal_registry::PortalReadiness>,
+     wait_ctx: WaitContext,
+     state: Arc<CrossDomainState>,
+     pub(crate) item_state: CrossDomainItemState,
+@@ -249,6 +253,10 @@
+ }
+
+ pub(crate) struct CrossDomainContext {
++    #[cfg(target_os = "linux")]
++    pub(crate) portal_registry: Option<Arc<portal_registry::PortalRegistry>>,
++    #[cfg(target_os = "linux")]
++    pub(crate) portal_lease: Option<portal_registry::PortalLease>,
+     #[allow(dead_code)] // `channels` is unused on Windows.
+     pub(crate) channels: Option<Vec<RutabagaChannel>>,
+     gralloc: Arc<Mutex<RutabagaGralloc>>,
+@@ -268,6 +276,8 @@
+ /// The CrossDomain component contains a list of channels that the guest may connect to and the
+ /// ability to allocate memory.
+ pub struct CrossDomain {
++    #[cfg(target_os = "linux")]
++    portal_registry: Option<Arc<portal_registry::PortalRegistry>>,
+     channels: Option<Vec<RutabagaChannel>>,
+     gralloc: Arc<Mutex<RutabagaGralloc>>,
+     fence_handler: RutabagaFenceHandler,
+@@ -403,14 +413,35 @@
+ }
+
+ impl CrossDomainWorker {
++    fn fail_receive<T: CrossDomainSendReceiveBase>(&self, fence: RutabagaFence) {
++        let mut end: T = Default::default();
++        end.hdr_mut().cmd = CROSS_DOMAIN_CMD_RECEIVE;
++        // Retire the waiting fence with EOF instead of leaving the guest
++        // blocked after malformed descriptors or a failed resource import
++        let _ = self
++            .state
++            .write_to_ring(RingWrite::Write(end, None), self.state.channel_ring_id);
++        self.fence_handler.call(fence);
++        #[cfg(any(target_os = "linux", target_os = "android"))]
++        if let Some(connection) = &self.state.connection {
++            let _ = nix::sys::socket::shutdown(
++                connection.as_raw_fd(),
++                nix::sys::socket::Shutdown::Both,
++            );
++        }
++    }
++
+     fn new(
+         wait_ctx: WaitContext,
+         state: Arc<CrossDomainState>,
+         item_state: CrossDomainItemState,
+         fence_handler: RutabagaFenceHandler,
+         protocol_version: u32,
++        #[cfg(target_os = "linux")] portal_readiness: Option<portal_registry::PortalReadiness>,
+     ) -> CrossDomainWorker {
+         CrossDomainWorker {
++            #[cfg(target_os = "linux")]
++            portal_readiness,
+             wait_ctx,
+             state,
+             item_state,
+@@ -595,8 +626,7 @@
+             if let Ok(seek_size) = file.seek(SeekFrom::End(0)) {
+                 *identifier_type = CROSS_DOMAIN_ID_TYPE_VIRTGPU_BLOB;
+                 *identifier_size = seek_size.try_into()?;
+-                let fd_path = read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+-                    .unwrap()
++                let fd_path = read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?
+                     .as_os_str()
+                     .to_string_lossy()
+                     .into_owned();
+@@ -638,6 +668,10 @@
+             .add(CrossDomainToken::Resample, &thread_resample_evt)?;
+         self.wait_ctx
+             .add(CrossDomainToken::Kill, &thread_kill_evt)?;
++        #[cfg(target_os = "linux")]
++        if let Some(readiness) = &self.portal_readiness {
++            readiness.ready();
++        }
+         let buf_size = if self.protocol_version == 0 {
+             CROSS_DOMAIN_MAX_SEND_RECV_SIZE
+         } else {
+@@ -652,6 +686,11 @@
+                         Ok(()) => (),
+                         Err(e) => {
+                             error!("Worker halting due to: {e}");
++                            if self.protocol_version == 0 {
++                                self.fail_receive::<CrossDomainSendReceive>(fence);
++                            } else {
++                                self.fail_receive::<CrossDomainSendReceiveV2>(fence);
++                            }
+                             return Err(e);
+                         }
+                     }
+@@ -706,6 +745,8 @@
+     ) -> RutabagaResult<Box<dyn RutabagaComponent>> {
+         let gralloc = RutabagaGralloc::new()?;
+         Ok(Box::new(CrossDomain {
++            #[cfg(target_os = "linux")]
++            portal_registry: portal_registry::PortalRegistry::from_environment(),
+             channels,
+             gralloc: Arc::new(Mutex::new(gralloc)),
+             fence_handler,
+@@ -715,7 +756,14 @@
+ }
+
+ impl CrossDomainContext {
+-    fn initialize(&mut self, cmd_init: &CrossDomainInitV1) -> RutabagaResult<()> {
++    fn initialize(
++        &mut self,
++        cmd_init: &CrossDomainInitV1,
++        registration_token: Option<[u8; 16]>,
++    ) -> RutabagaResult<()> {
++        if registration_token.is_some() && cmd_init.channel_type == 0 {
++            return Err(RutabagaError::InvalidCrossDomainChannel);
++        }
+         if !self
+             .context_resources
+             .lock()
+@@ -742,7 +790,7 @@
+                 return Err(RutabagaError::InvalidResourceId);
+             }
+
+-            let connection = self.get_connection(cmd_init)?;
++            let connection = self.get_connection(cmd_init, registration_token)?;
+
+             let (kill_evt, thread_kill_evt) = channel()?;
+             let (resample_evt, thread_resample_evt) = channel()?;
+@@ -766,6 +814,8 @@
+             let thread_state = state.clone();
+             let thread_items = self.item_state.clone();
+             let thread_fence_handler = self.fence_handler.clone();
++            #[cfg(target_os = "linux")]
++            let portal_readiness = self.portal_lease.as_ref().map(|lease| lease.readiness());
+
+             let worker_result = thread::Builder::new()
+                 .name("cross domain".to_string())
+@@ -776,11 +826,13 @@
+                         thread_items,
+                         thread_fence_handler,
+                         protocol_version,
++                        #[cfg(target_os = "linux")]
++                        portal_readiness,
+                     )
+                     .run(thread_kill_evt, thread_resample_evt)
+                 });
+
+-            self.worker_thread = Some(worker_result.unwrap());
++            self.worker_thread = Some(worker_result?);
+             self.state = Some(state);
+             self.resample_evt = Some(resample_evt);
+             self.kill_evt = Some(kill_evt);
+@@ -952,9 +1004,13 @@
+             if let CrossDomainItem::Eventfd(_) = item {
+                 self.state
+                     .as_ref()
+-                    .unwrap()
++                    .ok_or(RutabagaError::InvalidCrossDomainState)?
+                     .add_job(CrossDomainJob::AddReadEventfd(cmd_eventfd_new.id));
+-                channel_signal(self.resample_evt.as_ref().unwrap())?;
++                channel_signal(
++                    self.resample_evt
++                        .as_ref()
++                        .ok_or(RutabagaError::InvalidCrossDomainState)?,
++                )?;
+                 Ok(())
+             } else {
+                 Err(RutabagaError::InvalidCrossDomainItemType)
+@@ -1031,6 +1087,9 @@
+
+ impl Drop for CrossDomainContext {
+     fn drop(&mut self) {
++        // Revoke before joining the worker so no stream survives its context
++        #[cfg(target_os = "linux")]
++        self.portal_lease.take();
+         if let Some(state) = &self.state {
+             state.add_job(CrossDomainJob::Finish);
+         }
+@@ -1218,34 +1277,64 @@
+         while !commands.is_empty() {
+             let (hdr, _) = CrossDomainHeader::read_from_prefix(commands)
+                 .map_err(|_e| RutabagaError::InvalidCommandBuffer)?;
++            let command_size = hdr.cmd_size as usize;
++            if command_size < size_of::<CrossDomainHeader>() || command_size > commands.len() {
++                return Err(RutabagaError::InvalidCommandSize(command_size));
++            }
++            let (command, remaining) = commands.split_at_mut(command_size);
+
+             match hdr.cmd {
+                 CROSS_DOMAIN_CMD_INIT => {
+-                    let cmd_init = CrossDomainInitV1::read_from_prefix(commands.as_bytes())
+-                        .map(|(x, _)| x)
+-                        .or_else(|_| {
+-                            CrossDomainInitV0::read_from_prefix(commands.as_bytes())
+-                                .map(|(x, _)| x.upgrade())
+-                        })
+-                        .or_else(|_| {
+-                            CrossDomainInitVMinus1::read_from_prefix(commands.as_bytes())
+-                                .map(|(x, _)| x.upgrade())
+-                        })
+-                        .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+-                    self.initialize(&cmd_init)?;
++                    // A registered context owns one stream until destruction
++                    #[cfg(target_os = "linux")]
++                    if self.portal_lease.is_some() {
++                        return Err(RutabagaError::InvalidCrossDomainState);
++                    }
++                    let size = hdr.cmd_size as usize;
++                    let command = command
++                        .get(..size)
++                        .ok_or(RutabagaError::InvalidCommandSize(size))?;
++                    let (cmd_init, token) = if size == size_of::<CrossDomainInitV2>() {
++                        let (command, _) = CrossDomainInitV2::read_from_prefix(command)
++                            .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
++                        if command.init.protocol_version != 1 {
++                            return Err(RutabagaError::InvalidCommandBuffer);
++                        }
++                        (command.init, Some(command.registration_token))
++                    } else if size == size_of::<CrossDomainInitV1>() {
++                        let (command, _) = CrossDomainInitV1::read_from_prefix(command)
++                            .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
++                        (command, None)
++                    } else if size == size_of::<CrossDomainInitV0>() {
++                        let (command, _) = CrossDomainInitV0::read_from_prefix(command)
++                            .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
++                        (command.upgrade(), None)
++                    } else if size == size_of::<CrossDomainInitVMinus1>() {
++                        let (command, _) = CrossDomainInitVMinus1::read_from_prefix(command)
++                            .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
++                        (command.upgrade(), None)
++                    } else {
++                        return Err(RutabagaError::InvalidCommandSize(size));
++                    };
++                    let result = self.initialize(&cmd_init, token);
++                    #[cfg(target_os = "linux")]
++                    if result.is_err() {
++                        self.portal_lease.take();
++                    }
++                    result?;
+                 }
+                 CROSS_DOMAIN_CMD_GET_IMAGE_REQUIREMENTS => {
+                     let (cmd_get_reqs, _) =
+-                        CrossDomainGetImageRequirements::read_from_prefix(commands.as_bytes())
++                        CrossDomainGetImageRequirements::read_from_prefix(command.as_bytes())
+                             .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+
+                     self.get_image_requirements(&cmd_get_reqs)?;
+                 }
+                 CROSS_DOMAIN_CMD_SEND => {
+                     if self.protocol_version == 0 {
+-                        self.process_cmd_send::<CrossDomainSendReceive, {CrossDomainSendReceive::MAX_IDENTIFIERS}>(commands)?;
++                        self.process_cmd_send::<CrossDomainSendReceive, {CrossDomainSendReceive::MAX_IDENTIFIERS}>(command)?;
+                     } else {
+-                        self.process_cmd_send::<CrossDomainSendReceiveV2, {CrossDomainSendReceiveV2::MAX_IDENTIFIERS}>(commands)?;
++                        self.process_cmd_send::<CrossDomainSendReceiveV2, {CrossDomainSendReceiveV2::MAX_IDENTIFIERS}>(command)?;
+                     }
+                 }
+                 CROSS_DOMAIN_CMD_POLL => {
+@@ -1253,11 +1342,10 @@
+                 }
+                 CROSS_DOMAIN_CMD_WRITE => {
+                     let opaque_data_offset = size_of::<CrossDomainReadWrite>();
+-                    let (cmd_write, _) =
+-                        CrossDomainReadWrite::read_from_prefix(commands.as_bytes())
+-                            .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+-
+-                    let opaque_data = commands
++                    let (cmd_write, _) = CrossDomainReadWrite::read_from_prefix(command.as_bytes())
++                        .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
++
++                    let opaque_data = command
+                         .get_mut(
+                             opaque_data_offset
+                                 ..opaque_data_offset + cmd_write.opaque_data_size as usize,
+@@ -1271,36 +1359,34 @@
+                 #[cfg(feature = "x")]
+                 CROSS_DOMAIN_CMD_FUTEX_NEW => {
+                     let (cmd_new_futex, _) =
+-                        CrossDomainFutexNew::read_from_prefix(commands.as_bytes())
++                        CrossDomainFutexNew::read_from_prefix(command.as_bytes())
+                             .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+                     self.futex_new(&cmd_new_futex)?;
+                 }
+                 #[cfg(feature = "x")]
+                 CROSS_DOMAIN_CMD_FUTEX_SIGNAL => {
+                     let (cmd_futex_signal, _) =
+-                        CrossDomainFutexSignal::read_from_prefix(commands.as_bytes())
++                        CrossDomainFutexSignal::read_from_prefix(command.as_bytes())
+                             .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+                     self.futex_signal(&cmd_futex_signal)?;
+                 }
+                 #[cfg(feature = "x")]
+                 CROSS_DOMAIN_CMD_FUTEX_DESTROY => {
+                     let (cmd_futex_destroy, _) =
+-                        CrossDomainFutexDestroy::read_from_prefix(commands.as_bytes())
++                        CrossDomainFutexDestroy::read_from_prefix(command.as_bytes())
+                             .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+                     self.futex_destroy(&cmd_futex_destroy)?;
+                 }
+                 CROSS_DOMAIN_CMD_READ_EVENTFD_NEW => {
+                     let (cmd_new_efd, _) =
+-                        CrossDomainReadEventfdNew::read_from_prefix(commands.as_bytes())
++                        CrossDomainReadEventfdNew::read_from_prefix(command.as_bytes())
+                             .map_err(|_| RutabagaError::InvalidCommandBuffer)?;
+                     self.read_eventfd_new(&cmd_new_efd)?;
+                 }
+                 _ => return Err(RutabagaError::SpecViolation("invalid cross domain command")),
+             }
+
+-            commands = commands
+-                .get_mut(hdr.cmd_size as usize..)
+-                .ok_or(RutabagaError::InvalidCommandSize(hdr.cmd_size as usize))?;
++            commands = remaining;
+         }
+
+         Ok(())
+@@ -1375,6 +1461,11 @@
+
+         // Version 1 supports all commands up to and including CROSS_DOMAIN_CMD_WRITE.
+         caps.version = 1;
++        #[cfg(target_os = "linux")]
++        if self.portal_registry.is_some() {
++            caps.version = 2;
++            caps.supported_channels |= 1 << RUTABAGA_CHANNEL_TYPE_PW;
++        }
+         caps.as_bytes().to_vec()
+     }
+
+@@ -1421,6 +1512,10 @@
+         fence_handler: RutabagaFenceHandler,
+     ) -> RutabagaResult<Box<dyn RutabagaContext>> {
+         Ok(Box::new(CrossDomainContext {
++            #[cfg(target_os = "linux")]
++            portal_registry: self.portal_registry.clone(),
++            #[cfg(target_os = "linux")]
++            portal_lease: None,
+             channels: self.channels.clone(),
+             gralloc: self.gralloc.clone(),
+             state: None,
+--- a/src/rutabaga_gfx/src/cross_domain/sys/mod.rs
++++ b/src/rutabaga_gfx/src/cross_domain/sys/mod.rs
+@@ -1,6 +1,9 @@
+ // Copyright 2022 The ChromiumOS Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
++
++#[cfg(any(target_os = "android", target_os = "linux"))]
++pub(crate) mod unix_stream;
+
+ cfg_if::cfg_if! {
+     if #[cfg(any(target_os = "android", target_os = "linux"))] {
+--- a/src/rutabaga_gfx/src/cross_domain/sys/stub.rs
++++ b/src/rutabaga_gfx/src/cross_domain/sys/stub.rs
+@@ -30,6 +30,7 @@
+     pub(crate) fn get_connection(
+         &mut self,
+         _cmd_init: &CrossDomainInitV1,
++        _registration_token: Option<[u8; 16]>,
+     ) -> RutabagaResult<Option<SystemStream>> {
+         Err(RutabagaError::Unsupported)
+     }
+--- a/src/rutabaga_gfx/src/cross_domain/sys/unix.rs
++++ b/src/rutabaga_gfx/src/cross_domain/sys/unix.rs
+@@ -3,24 +3,16 @@
+ // found in the LICENSE file.
+
+ use std::fs::File;
+-use std::io::IoSlice;
+-use std::io::IoSliceMut;
+ use std::os::unix::io::AsRawFd;
+ use std::os::unix::prelude::AsFd;
+
+-use nix::cmsg_space;
+ use nix::sys::epoll::EpollCreateFlags;
+ use nix::sys::epoll::EpollFlags;
+ use nix::sys::eventfd::EfdFlags;
+ use nix::sys::eventfd::EventFd;
+ use nix::sys::socket::connect;
+-use nix::sys::socket::recvmsg;
+-use nix::sys::socket::sendmsg;
+ use nix::sys::socket::socket;
+ use nix::sys::socket::AddressFamily;
+-use nix::sys::socket::ControlMessage;
+-use nix::sys::socket::ControlMessageOwned;
+-use nix::sys::socket::MsgFlags;
+ use nix::sys::socket::SockFlag;
+ use nix::sys::socket::SockType;
+ use nix::sys::socket::UnixAddr;
+@@ -44,7 +36,6 @@
+ use crate::cross_domain::CrossDomainToken;
+ use crate::cross_domain::WAIT_CONTEXT_MAX;
+ use crate::rutabaga_os::AsRawDescriptor;
+-use crate::rutabaga_os::FromRawDescriptor;
+ use crate::rutabaga_os::RawDescriptor;
+ use crate::RutabagaError;
+ use crate::RutabagaResult;
+@@ -53,57 +44,31 @@
+
+ impl CrossDomainState {
+     fn send_msg(&self, opaque_data: &[u8], descriptors: &[RawDescriptor]) -> RutabagaResult<usize> {
+-        let cmsg = ControlMessage::ScmRights(descriptors);
+-        if let Some(connection) = &self.connection {
+-            let bytes_sent = sendmsg::<()>(
+-                connection.as_raw_descriptor(),
+-                &[IoSlice::new(opaque_data)],
+-                &[cmsg],
+-                MsgFlags::empty(),
+-                None,
+-            )?;
+-
+-            return Ok(bytes_sent);
+-        }
+-
+-        Err(RutabagaError::InvalidCrossDomainChannel)
++        let connection = self
++            .connection
++            .as_ref()
++            .ok_or(RutabagaError::InvalidCrossDomainChannel)?;
++        Ok(super::unix_stream::send_all(
++            connection.as_raw_descriptor(),
++            opaque_data,
++            descriptors,
++        )?)
+     }
+
+     pub(crate) fn receive_msg<const MAX_IDENTIFIERS: usize>(
+         &self,
+         opaque_data: &mut [u8],
+     ) -> RutabagaResult<(usize, Vec<File>)> {
+-        // If any errors happen, the socket will get dropped, preventing more reading.
+-        let mut iovecs = [IoSliceMut::new(opaque_data)];
+-        let mut cmsgspace = cmsg_space!([RawDescriptor; MAX_IDENTIFIERS]);
+-        let flags = MsgFlags::empty();
+-
+-        if let Some(connection) = &self.connection {
+-            let r = recvmsg::<()>(
+-                connection.as_raw_descriptor(),
+-                &mut iovecs,
+-                Some(&mut cmsgspace),
+-                flags,
+-            )?;
+-            let len = r.bytes;
+-
+-            let files = match r.cmsgs()?.next() {
+-                Some(ControlMessageOwned::ScmRights(fds)) => {
+-                    fds.into_iter()
+-                        .map(|fd| {
+-                            // Safe since the descriptors from recv_with_fds(..) are owned by us and valid.
+-                            unsafe { File::from_raw_descriptor(fd) }
+-                        })
+-                        .collect()
+-                }
+-                Some(_) => return Err(RutabagaError::Unsupported),
+-                None => Vec::new(),
+-            };
+-
+-            Ok((len, files))
+-        } else {
+-            Err(RutabagaError::InvalidCrossDomainChannel)
+-        }
++        let connection = self
++            .connection
++            .as_ref()
++            .ok_or(RutabagaError::InvalidCrossDomainChannel)?;
++        Ok(super::unix_stream::receive(
++            connection.as_raw_descriptor(),
++            opaque_data,
++            MAX_IDENTIFIERS,
++            0,
++        )?)
+     }
+ }
+
+@@ -111,7 +76,31 @@
+     pub(crate) fn get_connection(
+         &mut self,
+         cmd_init: &CrossDomainInitV1,
++        registration_token: Option<[u8; 16]>,
+     ) -> RutabagaResult<Option<SystemStream>> {
++        if let Some(token) = registration_token {
++            if cmd_init.channel_type != crate::RUTABAGA_CHANNEL_TYPE_PW
++                || token == [0; 16]
++                || self.state.is_some()
++            {
++                return Err(RutabagaError::InvalidCrossDomainChannel);
++            }
++            #[cfg(target_os = "linux")]
++            {
++                let registry = self
++                    .portal_registry
++                    .as_ref()
++                    .ok_or(RutabagaError::InvalidCrossDomainChannel)?;
++                let (connection, lease) = registry
++                    .claim(token)
++                    .map_err(|_| RutabagaError::InvalidCrossDomainChannel)?;
++                self.channels.take();
++                self.portal_lease = Some(lease);
++                return Ok(Some(connection));
++            }
++            #[cfg(not(target_os = "linux"))]
++            return Err(RutabagaError::Unsupported);
++        }
+         let channels = self
+             .channels
+             .take()
