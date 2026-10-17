@@ -49,6 +49,7 @@
             libkrun
             muvm
             fex
+            waypipe
             steam-asahi-arm64
             steam-asahi
             ;

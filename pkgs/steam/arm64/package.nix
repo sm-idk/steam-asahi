@@ -9,6 +9,7 @@
   writeShellApplication,
   replaceVars,
   python315,
+  waypipe,
   steam-arm64-client,
   steam-unwrapped,
   muvm,
@@ -30,7 +31,6 @@
   xz,
   yad,
   lsb-release,
-  xdg-utils,
   xdg-user-dirs,
   glibc,
   tzdata,
@@ -43,6 +43,8 @@
       libX11
       ;
   },
+  nativeWayland ? true,
+  portalResources ? false,
   cpuList ? null,
   memoryMiB ? null,
   vramMiB ? null,
@@ -64,6 +66,15 @@ assert launcherOptions.validate "steam-asahi-arm64" {
 };
 
 let
+  desktop = callPackage ../../../lib/guest/desktop.nix {
+    inherit
+      muvm
+      python315
+      waypipe
+      nativeWayland
+      portalResources
+      ;
+  };
   scripts = guestScripts.override { inherit bash; };
   muvmArguments = launcherOptions.muvmArguments {
     inherit
@@ -115,7 +126,9 @@ let
       TASKSET = lib.meta.getExe' util-linux "taskset";
       TZDATA_ZONEINFO = "${tzdata}/share/zoneinfo";
       X11_LOCALE = "${libX11}/share/X11/locale";
-      XDG_OPEN = lib.meta.getExe' xdg-utils "xdg-open";
+      XDG_OPEN = lib.getExe desktop.opener;
+      DESKTOP_DIAGNOSTIC = lib.getExe desktop.diagnostic;
+      GAME_LAUNCHER = lib.getExe desktop.game;
       XDG_USER_DIR = lib.meta.getExe' xdg-user-dirs "xdg-user-dir";
       ZENITY = lib.meta.getExe yad;
     };
@@ -171,7 +184,8 @@ let
     inherit (armProton) displayName toolName;
   };
 
-  launcher = (mkHostLauncher.override { inherit python315; }) {
+  launcher = mkHostLauncher {
+    inherit desktop nativeWayland portalResources;
     runtimeInputs = [
       coreutils
     ];
@@ -218,6 +232,7 @@ in
   desktopName = "Steam (Asahi, ARM64 beta)";
   comment = "Native ARM64 Steam public beta in a 4K-page microVM";
   passthru = {
+    inherit nativeWayland portalResources;
     inherit (steam-arm64-client) updateScript;
     inherit
       customSteamHomeDir
@@ -234,6 +249,10 @@ in
       init = initScript;
       lspci = lspciShim;
       guest = guestLauncher;
+      desktopOpener = desktop.opener;
+      session = desktop.session;
+      desktopDiagnostic = desktop.diagnostic;
+      gameLauncher = desktop.game;
     };
     backend = "arm64";
     proton = armProton;

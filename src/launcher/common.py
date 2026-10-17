@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -20,6 +21,15 @@ from uuid import uuid4
 lazy from environment import runtime_directory
 
 lazy from boltons.fileutils import atomic_save
+lazy from desktop import start_host_opener
+lazy from resources import HOST_ROOT
+lazy from services import vm_running
+lazy from session import BUS_SOCKET_NAME, find_session_bus, start_host_bus
+lazy from wayland import (
+    WAYLAND_SOCKET_NAME,
+    find_wayland_display,
+    start_host_wayland,
+)
 
 if TYPE_CHECKING:
     from configuration import LauncherConfiguration
@@ -164,6 +174,16 @@ def muvm_arguments(
     emulator: str | None = None,
     interactive: bool = True,
 ) -> list[str]:
+    if configuration.get("GUEST_SESSION"):
+        # Pressure Vessel needs the same host export for chooser replies,
+        # including host document-portal mounts and new save destinations
+        environment = dict(environment)
+        shared = environment.get("PRESSURE_VESSEL_FILESYSTEMS_RW")
+        if shared is None:
+            shared = os.environ.get("PRESSURE_VESSEL_FILESYSTEMS_RW", "")
+        environment["PRESSURE_VESSEL_FILESYSTEMS_RW"] = ":".join(
+            part for part in (shared, str(HOST_ROOT)) if part
+        )
     return [
         configuration["MUVM"],
         *([f"--emu={emulator}"] if emulator is not None else []),
@@ -185,12 +205,35 @@ def exec_guest(
     *,
     configuration: LauncherConfiguration,
     reuse_only: bool = False,
+    host_environment: Mapping[str, str] | None = None,
 ) -> NoReturn:
     environment = os.environ.copy()
     environment.pop("MUVM_RUNTIME_DIR", None)
+    environment.pop("KRUN_PIPEWIRE_REGISTRY", None)
+    if display := environment.get("DISPLAY"):
+        if re.fullmatch(r":[0-9]+\.[0-9]+", display):
+            # libkrun and muvm's Xauthority filter expect the display number
+            # without Xlib's optional screen suffix
+            environment["DISPLAY"] = display.split(".", 1)[0]
     default_runtime = Path(f"/run/user/{os.geteuid()}")
     if not environment.get("XDG_RUNTIME_DIR") and default_runtime.is_dir():
         environment["XDG_RUNTIME_DIR"] = str(default_runtime)
+    desktop_environment = dict(
+        host_environment if host_environment is not None else os.environ
+    )
+    if not desktop_environment.get("XDG_RUNTIME_DIR"):
+        if host_runtime := environment.get("XDG_RUNTIME_DIR"):
+            desktop_environment["XDG_RUNTIME_DIR"] = host_runtime
+    session_bus = (
+        find_session_bus(desktop_environment)
+        if configuration.get("GUEST_SESSION")
+        else None
+    )
+    wayland_display = (
+        find_wayland_display(desktop_environment)
+        if configuration.get("GUEST_SESSION") and configuration.get("WAYPIPE")
+        else None
+    )
     if runtime := environment.get("XDG_RUNTIME_DIR"):
         if not Path(runtime).is_absolute():
             raise LauncherError("XDG_RUNTIME_DIR must be an absolute path")
@@ -203,46 +246,118 @@ def exec_guest(
         # muvm reuses a VM without rerunning init or applying boot options
         # Include the home because ARM64 init rewrites the guest passwd entry
         identity = json.dumps(
-            [configuration, str(Path.home())], sort_keys=True
+            [
+                configuration,
+                str(Path.home()),
+                session_bus,
+                str(wayland_display) if wayland_display else None,
+            ],
+            sort_keys=True,
         ).encode()
         instance = hashlib.sha256(identity).hexdigest()[:16]
         directory = Path(runtime) / "steam-asahi" / instance
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        # Upstream muvm uses XDG_RUNTIME_DIR for its locks and control sockets
-        # Preserve host audio and session-bus discovery through socket links
-        for name in ("pulse", "bus"):
-            replace_symlink(Path(runtime) / name, directory / name)
+        directory.mkdir(
+            mode=0o700, parents=True, parent_mode=0o700, exist_ok=True
+        )
+        # Upstream muvm uses XDG_RUNTIME_DIR for its locks and control
+        # sockets muvm uses this host-side alias to discover the audio socket
+        replace_symlink(Path(runtime) / "pulse", directory / "pulse")
         # libkrun discovers PipeWire separately, but resolves Wayland under XDG
         environment.setdefault("PIPEWIRE_RUNTIME_DIR", runtime)
         display = environment.get("WAYLAND_DISPLAY", "wayland-0")
-        wayland_socket = Path(runtime) / display
-        if wayland_socket.parent == Path(runtime) and display not in (
-            "muvm.lock",
-            "krun",
-            "hidpipe",
-            "pulse",
-            "bus",
-        ):
-            replace_symlink(wayland_socket, directory / display)
+        if display:
+            # libkrun 1.19 prefixes the runtime directory even for absolute
+            # display paths, so always provide a simple private socket alias
+            replace_symlink(Path(runtime) / display, directory / "wayland-host")
+            environment["WAYLAND_DISPLAY"] = "wayland-host"
         environment["XDG_RUNTIME_DIR"] = str(directory)
     if reuse_only:
         # A held Steam lock can belong to a VM from another configuration
         # Refuse to boot a second VM against that same mutable Steam home
-        running = False
-        if runtime_directory := environment.get("XDG_RUNTIME_DIR"):
-            try:
-                with (Path(runtime_directory) / "muvm.lock").open() as lock:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except BlockingIOError:
-                        running = True
-            except FileNotFoundError:
-                pass
+        runtime = environment.get("XDG_RUNTIME_DIR")
+        running = vm_running(Path(runtime) / "muvm.lock") if runtime else False
         if not running:
             raise LauncherError(
                 "Steam Asahi is already running with another launcher "
                 "configuration; close Steam before using this launcher"
             )
+    if opener := configuration.get("HOST_OPEN"):
+        if not environment.get("XDG_RUNTIME_DIR"):
+            raise LauncherError("desktop integration requires XDG_RUNTIME_DIR")
+        start_host_opener(
+            Path(environment["XDG_RUNTIME_DIR"]),
+            str(opener),
+            desktop_environment,
+        )
+    if (session_bus or wayland_display) and (
+        guest_session := configuration.get("GUEST_SESSION")
+    ):
+        if not environment.get("XDG_RUNTIME_DIR"):
+            raise LauncherError(
+                "guest desktop services require XDG_RUNTIME_DIR"
+            )
+        guest_environment = {}
+        if session_bus:
+            registry = None
+            guest_environment["STEAM_ASAHI_PORTAL_RESOURCES"] = "0"
+            if configuration.get("PORTAL_RESOURCES", False):
+                registry_directory = (
+                    Path(environment["XDG_RUNTIME_DIR"]) / "portal"
+                )
+                try:
+                    registry_directory.mkdir(mode=0o700, exist_ok=True)
+                except OSError as error:
+                    print(
+                        f"WARNING: Portal resource directory unavailable: "
+                        f"{error}. Using the session bus byte relay.",
+                        file=sys.stderr,
+                    )
+                else:
+                    registry = registry_directory / "pipewire"
+                    environment["KRUN_PIPEWIRE_REGISTRY"] = str(registry)
+                    guest_environment["STEAM_ASAHI_PORTAL_RESOURCES"] = "1"
+            start_host_bus(
+                Path(environment["XDG_RUNTIME_DIR"]),
+                session_bus,
+                desktop_environment,
+                registry=registry,
+            )
+            guest_environment.update(
+                STEAM_ASAHI_SESSION_BUS="1",
+                DBUS_SESSION_BUS_ADDRESS="unix:path="
+                f"/run/user/{os.geteuid()}/{BUS_SOCKET_NAME}",
+            )
+        if wayland_display:
+            try:
+                start_host_wayland(
+                    Path(environment["XDG_RUNTIME_DIR"]),
+                    str(configuration["WAYPIPE"]),
+                    wayland_display,
+                    desktop_environment,
+                    configuration.get("WAYPIPE_ARGS", []),
+                )
+            except (OSError, ValueError) as error:
+                print(
+                    f"WARNING: Optional Wayland bridge unavailable: {error}. "
+                    "Continuing with the X11 bridge.",
+                    file=sys.stderr,
+                )
+            else:
+                guest_environment.update(
+                    STEAM_ASAHI_WAYLAND="1",
+                    STEAM_ASAHI_WAYLAND_DISPLAY=WAYLAND_SOCKET_NAME,
+                )
+        arguments = [
+            arguments[0],
+            "--user-execute-pre",
+            str(guest_session),
+            *[
+                *("-e", f"{name}={value}")
+                for name, value in guest_environment.items()
+            ],
+            # Explicit per-backend environment arguments retain precedence
+            *arguments[1:],
+        ]
     for name in ("BASH_ENV", "ENV", *HOST_LOCALE_VARIABLES):
         environment.pop(name, None)
     environment.update(LANG="C.UTF-8", LC_ALL="C.UTF-8")

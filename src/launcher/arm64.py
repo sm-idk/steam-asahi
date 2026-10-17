@@ -54,6 +54,7 @@ MAX_PROTON_LOG_BYTES = 1024 * 1024
 class Arm64Launcher:
     def __init__(self, configuration: Arm64Configuration) -> None:
         self.config = configuration
+        self.host_environment = os.environ.copy()
         self.source_home = Path.home()
         self.source_config_home = xdg_home("XDG_CONFIG_HOME")
         self.source_data_home = xdg_home("XDG_DATA_HOME")
@@ -132,6 +133,7 @@ class Arm64Launcher:
             self.lock_descriptor,
             configuration=config,
             reuse_only=reuse_only,
+            host_environment=self.host_environment,
         )
 
     def sync_pulse_cookie(self) -> None:

@@ -137,6 +137,12 @@ in
             extraEnv = filterAttrs (_: value: value != null) ((previous.extraEnv or { }) // cfg.extraEnv);
             inherit publishPorts;
           }
+          // optionalAttrs (package ? nativeWayland || !cfg.nativeWayland) {
+            inherit (cfg) nativeWayland;
+          }
+          // optionalAttrs (package ? portalResources || cfg.portalResources) {
+            inherit (cfg) portalResources;
+          }
           // optionalAttrs (cfg.backend == "arm64") {
             inherit (cfg) customSteamHomeDir;
           }
@@ -151,7 +157,32 @@ in
         {option}`programs.steam-asahi.customSteamHomeDir`. Existing `extraEnv`
         customization on the selected package is preserved, while module
         values take precedence. A custom package must accept the corresponding
-        arguments.
+        arguments. Enabling experimental portal resources also requires a
+        custom package to accept `portalResources`.
+      '';
+    };
+
+    nativeWayland = mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Expose a guest Wayland display through matching host and guest Waypipe
+        processes. Steam keeps the inherited XWayland display; individual games
+        opt into the guest Wayland display with steam-asahi-game. Disabling this
+        removes the optional Waypipe dependency from the host launcher.
+      '';
+    };
+
+    portalResources = mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Select the experimental descriptor transport for shared-file portal
+        opening and portal-authorized PipeWire connections. The guest checks
+        its filesystem and GPU capabilities, and the host checks its resource
+        registry before agreeing to descriptor passing. Missing capabilities
+        retain the ordinary session-bus relay with descriptor passing declined.
+        The backend patches still require combined package and VM validation.
       '';
     };
 
@@ -315,12 +346,16 @@ in
           `users.users.<name>.extraGroups = [ "kvm" ];`.
         '';
 
-      environment.systemPackages = builtins.attrValues {
-        inherit (cfg) package;
-        # Useful for direct guest diagnostics documented in the README. The
-        # launcher's other dependencies are already referenced by its closure
-        inherit (pkgs) muvm;
-      };
+      environment.systemPackages =
+        builtins.attrValues {
+          inherit (cfg) package;
+          # Useful for direct guest diagnostics documented in the README. The
+          # launcher's other dependencies are already referenced by its closure
+          inherit (pkgs) muvm;
+        }
+        # niri starts satellite on demand when it is available in PATH, but its
+        # NixOS module does not install it. Steam still needs the X11 bridge
+        ++ optional config.programs.niri.enable pkgs.xwayland-satellite;
 
       # Host Mesa/virglrenderer provides Asahi DRM native-context rendering;
       # steam-hardware supplies the standard controller and input udev rules

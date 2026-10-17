@@ -44,4 +44,18 @@ final: prev:
       ;
     upstream = prev.muvm;
   };
+  waypipe = import ./waypipe/override.nix {
+    inherit (final)
+      lib
+      fetchFromGitLab
+      rustPlatform
+      nix-update-script
+      ffmpeg
+      ffmpeg_8
+      python3
+      rustfmt
+      wayland-protocols
+      ;
+    upstream = prev.waypipe;
+  };
 }

@@ -13,6 +13,8 @@
   fuse,
   fuse3,
   bash,
+  python315,
+  waypipe,
   coreutils,
   util-linux,
   gnugrep,
@@ -26,6 +28,8 @@
   steam-unwrapped,
   steam-x86_64-client,
   muvmHostMount ? "/run/muvm-host",
+  nativeWayland ? true,
+  portalResources ? false,
   cpuList ? null,
   memoryMiB ? null,
   vramMiB ? null,
@@ -44,6 +48,15 @@ assert launcherOptions.validate "steam-asahi" {
 };
 
 let
+  desktop = callPackage ../../../lib/guest/desktop.nix {
+    inherit
+      muvm
+      python315
+      waypipe
+      nativeWayland
+      portalResources
+      ;
+  };
   scripts = guestScripts.override { inherit bash; };
   muvmArguments = launcherOptions.muvmArguments {
     inherit
@@ -81,10 +94,14 @@ let
       PACTL = lib.meta.getExe' pulseaudio "pactl";
       SH_BIN = "${lib.attrsets.getBin bash}/bin/sh";
       ZENITY = lib.meta.getExe yad;
+      XDG_OPEN = lib.getExe desktop.opener;
+      DESKTOP_DIAGNOSTIC = lib.getExe desktop.diagnostic;
+      GAME_LAUNCHER = lib.getExe desktop.game;
     };
   };
 
   launcher = mkHostLauncher {
+    inherit desktop nativeWayland portalResources;
     runtimeInputs = [
       coreutils
       squashfuse
@@ -131,10 +148,15 @@ in
   desktopName = "Steam (Asahi)";
   comment = "64-bit Steam beta on Apple Silicon via muvm + FEX-Emu";
   passthru = {
+    inherit nativeWayland portalResources;
     inherit steam-x86_64-client;
     shellApplications = {
       inherit launcher;
       init = initScript;
+      desktopOpener = desktop.opener;
+      session = desktop.session;
+      desktopDiagnostic = desktop.diagnostic;
+      gameLauncher = desktop.game;
       lspci = lspciShim;
       diagnostic = fexDiagnostic;
       steam = fexSteam;

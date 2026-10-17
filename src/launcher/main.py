@@ -27,6 +27,12 @@ def main() -> int:
         if len(sys.argv) < 2:
             raise LauncherError("usage: launcher CONFIGURATION [arguments...]")
         configuration = load_configuration(Path(sys.argv[1]))
+        if sys.argv[2:3] == ["--desktop-diagnostics"]:
+            from diagnostics import launch_diagnostics
+
+            return launch_diagnostics(
+                configuration, sys.argv[3:], Path(sys.argv[1])
+            )
         if configuration["BACKEND"] == "arm64":
             launcher = Arm64Launcher(configuration)
         else:

@@ -13,6 +13,8 @@ let
       "bin/lspci" = configuration.LSPCI;
       "bin/sh" = configuration.SH_BIN;
       "usr/bin/env" = configuration.ENV_BIN;
+      "usr/bin/xdg-open" = configuration.XDG_OPEN;
+      "usr/local/bin/xdg-open" = configuration.XDG_OPEN;
     }
     // lib.optionalAttrs (configuration ? GAME_LAUNCHER) {
       "usr/local/bin/steam-asahi-game" = configuration.GAME_LAUNCHER;

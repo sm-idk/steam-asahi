@@ -1,7 +1,7 @@
 """Validate Nix's JSON at the boundary before preparing launcher state"""
 
 from pathlib import Path
-from typing import Annotated, Literal, TypedDict, cast
+from typing import Annotated, Literal, NotRequired, TypedDict, cast
 
 import msgspec
 
@@ -26,6 +26,12 @@ class LauncherConfiguration(TypedDict):
     MEMORY_ARGS: list[Argument]
     VRAM_ARGS: list[Argument]
     NETWORK_ARGS: list[Argument]
+    HOST_OPEN: NotRequired[NonemptyArgument]
+    GUEST_SESSION: NotRequired[NonemptyArgument]
+    WAYPIPE: NotRequired[NonemptyArgument]
+    WAYPIPE_ARGS: NotRequired[list[Argument]]
+    DESKTOP_DIAGNOSTIC: NotRequired[NonemptyArgument]
+    PORTAL_RESOURCES: NotRequired[bool]
 
 
 class Arm64Configuration(LauncherConfiguration):
