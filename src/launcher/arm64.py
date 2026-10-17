@@ -1,49 +1,62 @@
-# /// script
-# requires-python = "==3.14.*"
-# dependencies = ["boltons", "msgspec"]
-# ///
-
 """Install isolated ARM64 Steam state and launch it through muvm"""
 
 from __future__ import annotations
 
-import fcntl
 import os
+import re
 import sys
 from pathlib import Path
 from typing import NoReturn
 
 from common import (
-    PRESSURE_VESSEL_FILESYSTEMS_RO,
     STEAM_CLIENT_ARGS,
     LauncherError,
-    copy_bootstrap,
+    acquire_steam_lock,
+    configure_steam_state,
     exec_guest,
     executable,
     install_managed_file,
+    install_client_bootstrap,
     muvm_arguments,
     replace_symlink,
     run,
     show_startup_splash,
+    steam_directory,
+    steam_guest_environment,
     warn_missing_audio_socket,
-    write_managed_value,
-    xdg_home,
 )
 from configuration import Arm64Configuration
+from environment import isolated_home_environment, xdg_home
 
 
 # The guest repairs Valve's helper and FFmpeg library before launch. Bootstrap
 # verification would restore their original bytes and request another restart
 # This flag leaves update checks enabled while preserving the local repairs
 ARM64_CLIENT_ARGS = (*STEAM_CLIENT_ARGS, "-noverifyfiles")
+LOGIN_STATE_FILES = ("local.vdf", "config/loginusers.vdf", "config/config.vdf")
+PROTON_MANAGED_FILES = (
+    ("compatibilitytool.vdf", "COMPATIBILITY_TOOL_VDF", 0o644),
+    ("run-proton", "PROTON_RUNNER", 0o755),
+    ("steam-asahi-proton", "PROTON_WRAPPER", 0o755),
+    ("toolmanifest.vdf", "TOOL_MANIFEST", 0o644),
+)
+LOCKED_COMMAND_ERRORS = frozendict(
+    {
+        "--force-proton": (
+            "Close Steam before changing a compatibility-tool mapping"
+        ),
+        "--import-login": "Close Steam before importing login state",
+    }
+)
+MAX_PROTON_LOG_BYTES = 1024 * 1024
 
 
 class Arm64Launcher:
     def __init__(self, configuration: Arm64Configuration) -> None:
         self.config = configuration
         self.source_home = Path.home()
-        self.source_config_home = xdg_home("XDG_CONFIG_HOME", ".config")
-        self.source_data_home = xdg_home("XDG_DATA_HOME", ".local/share")
+        self.source_config_home = xdg_home("XDG_CONFIG_HOME")
+        self.source_data_home = xdg_home("XDG_DATA_HOME")
         requested_home = Path(
             configuration["CUSTOM_STEAM_HOME_DIR"]
             or configuration["DEFAULT_STEAM_HOME_DIR"]
@@ -69,32 +82,16 @@ class Arm64Launcher:
         self.lock_descriptor: int | None = None
 
     def initialize_environment(self) -> None:
-        os.environ["HOME"] = str(self.home)
-        for name, suffix in {
-            "XDG_CACHE_HOME": ".cache",
-            "XDG_CONFIG_HOME": ".config",
-            "XDG_DATA_HOME": ".local/share",
-            "XDG_STATE_HOME": ".local/state",
-        }.items():
-            os.environ[name] = str(self.home / suffix)
+        os.environ.update(isolated_home_environment(self.home))
 
     def acquire_lock(self, arguments: list[str]) -> None:
         # Guest Steam PIDs cannot be checked against the host's /proc
-        self.steam.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(
-            self.steam / ".steam-asahi.lock", os.O_RDWR | os.O_CREAT, 0o666
-        )
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.lock_descriptor = acquire_steam_lock(self.steam, 0o666)
         except BlockingIOError as error:
-            os.close(descriptor)
-            if arguments[:1] == ["--force-proton"]:
-                message = (
-                    "Close Steam before changing a compatibility-tool mapping"
-                )
-            elif arguments[:1] == ["--import-login"]:
-                message = "Close Steam before importing login state"
-            else:
+            command = arguments[0] if arguments else ""
+            message = LOCKED_COMMAND_ERRORS.get(command)
+            if message is None:
                 # muvm forwards this command into its existing guest, where
                 # Steam can find its PID and handle URLs or reopen the window
                 print("Forwarding command to the running ARM64 Steam client...")
@@ -109,10 +106,6 @@ class Arm64Launcher:
                     reuse_only=True,
                 )
             raise LauncherError(message) from error
-        except BaseException:
-            os.close(descriptor)
-            raise
-        self.lock_descriptor = descriptor
 
     def run_guest(
         self,
@@ -125,10 +118,9 @@ class Arm64Launcher:
         exec_guest(
             muvm_arguments(
                 config,
-                {
-                    "PRESSURE_VESSEL_FILESYSTEMS_RO": PRESSURE_VESSEL_FILESYSTEMS_RO,
+                steam_guest_environment()
+                | {
                     "STEAM_ASAHI_GUEST_HOME": str(self.home),
-                    "STEAM_ASAHI_GUEST_UID": str(os.geteuid()),
                 },
                 interactive=interactive,
             )
@@ -154,17 +146,16 @@ class Arm64Launcher:
         install_managed_file(source, target, 0o600)
 
     def import_login_state(self) -> None:
-        source = self.source_data_home / "Steam"
-        paths = ("local.vdf", "config/loginusers.vdf", "config/config.vdf")
-        if source == self.steam:
+        source = steam_directory(self.source_home, self.source_data_home)
+        if source.resolve() == self.steam.resolve():
             raise LauncherError(
                 "the source and isolated Steam directories are identical"
             )
-        if any(not (source / path).is_file() for path in paths):
+        if any(not (source / path).is_file() for path in LOGIN_STATE_FILES):
             raise LauncherError(f"incomplete x86 Steam login under {source}")
         (self.steam / "config").mkdir(parents=True, exist_ok=True)
         (self.home / ".steam").mkdir(parents=True, exist_ok=True)
-        for path in paths:
+        for path in LOGIN_STATE_FILES:
             install_managed_file(source / path, self.steam / path, 0o600)
         registry = self.source_home / ".steam/registry.vdf"
         if registry.is_file():
@@ -176,26 +167,21 @@ class Arm64Launcher:
         )
 
     def install_client_bootstrap(self) -> None:
-        if executable(self.client / "steam"):
-            return
-        print("Installing the pinned ARM64 Steam beta bootstrap...")
-        copy_bootstrap(self.config["CLIENT_BOOTSTRAP"], self.client)
+        install_client_bootstrap(
+            self.config["CLIENT_BOOTSTRAP"], self.client, "ARM64"
+        )
 
     def configure_steam_state(self) -> None:
-        beta = self.steam / "package/beta"
-        beta.parent.mkdir(parents=True, exist_ok=True)
-        (self.home / ".steam").mkdir(parents=True, exist_ok=True)
-        channel = self.config["CLIENT_UPDATE_CHANNEL"]
-        if not beta.is_file() or beta.read_text().rstrip("\n") != channel:
-            write_managed_value(beta, channel)
-        for name, target in {
-            "root": self.steam,
-            "sdkarm64": self.steam / "linuxarm64",
-            "steam": self.steam,
-        }.items():
-            destination = self.home / ".steam" / name
-            if not destination.exists() and not destination.is_symlink():
-                destination.symlink_to(target)
+        configure_steam_state(
+            self.home,
+            self.steam,
+            self.config["CLIENT_UPDATE_CHANNEL"],
+            {
+                "root": self.steam,
+                "sdkarm64": self.steam / "linuxarm64",
+                "steam": self.steam,
+            },
+        )
 
     def proton_payloads_installed(self) -> bool:
         return executable(self.proton / "proton") and executable(
@@ -215,13 +201,10 @@ class Arm64Launcher:
             return
 
         self.compatibility.mkdir(parents=True, exist_ok=True)
-        for name, (source, mode) in {
-            "compatibilitytool.vdf": (config["COMPATIBILITY_TOOL_VDF"], 0o644),
-            "run-proton": (config["PROTON_RUNNER"], 0o755),
-            "steam-asahi-proton": (config["PROTON_WRAPPER"], 0o755),
-            "toolmanifest.vdf": (config["TOOL_MANIFEST"], 0o644),
-        }.items():
-            install_managed_file(source, self.compatibility / name, mode)
+        for name, source_key, mode in PROTON_MANAGED_FILES:
+            install_managed_file(
+                config[source_key], self.compatibility / name, mode
+            )
         for name, target in {
             "host-libs": config["HOST_LIBRARIES"],
             "proton": self.proton,
@@ -233,7 +216,7 @@ class Arm64Launcher:
         )
         log = self.compatibility / "steam-asahi-proton.log"
         try:
-            if log.lstat().st_size > 1024 * 1024:
+            if log.lstat().st_size > MAX_PROTON_LOG_BYTES:
                 log.replace(log.with_suffix(".log.old"))
         except OSError:
             # Optional log rotation must not prevent Steam from launching
@@ -264,11 +247,7 @@ class Arm64Launcher:
             if len(arguments) == 1:
                 raise LauncherError("usage: steam-asahi --force-proton APPID")
             app_id = arguments[1]
-            if (
-                not app_id.isascii()
-                or not app_id.isdecimal()
-                or app_id.startswith("0")
-            ):
+            if re.fullmatch(r"[1-9][0-9]*", app_id) is None:
                 raise LauncherError("APPID must be a positive decimal integer")
             arguments = arguments[2:]
 

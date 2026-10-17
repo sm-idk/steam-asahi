@@ -2,19 +2,13 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  curl,
-  gnused,
+  callPackage,
   nix-update-script,
-  python314Packages,
   runCommand,
   unzip,
-  writeShellApplication,
 }:
 
 let
-  python314 = python314Packages.python.withPackages (packages: [
-    packages.vdf
-  ]);
   # Repair archive paths and permissions from one declarative payload manifest
   clientLinks = {
     "libcurl.so" = "libcurl.so.4.8.0";
@@ -40,11 +34,11 @@ in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "steam-arm64-client";
   # Steam's public beta uses a Unix timestamp as its client version.
-  version = "1791415817";
+  version = "1792192922";
 
   src = fetchurl {
-    url = "https://client-update.fastly.steamstatic.com/bins_linuxarm64_linuxarm64.zip.c872d902ecd0509ba7c9e49a80aecfd7c462859b";
-    hash = "sha256-Z1f+jbMMIKoStIFd+ClX+f20v+WISXpAM2swPxbu/BU=";
+    url = "https://client-update.fastly.steamstatic.com/bins_linuxarm64_linuxarm64.zip.c10ca8366386600247b22796da24febe0805cbd7";
+    hash = "sha256-JscxcD5KZByNnsGsgOK8QOODf8MS0YCrMjFuM+2YCDQ=";
   };
 
   nativeBuildInputs = [ unzip ];
@@ -60,10 +54,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     root="$out/share/steam-arm64-client"
     client="$root/steamrtarm64"
-    ${lib.toShellVars {
-      STEAM_CLIENT_LINKS = clientLinks;
-      STEAM_CLIENT_EXECUTABLES = clientExecutables;
-    }}
     mkdir -p -- "$root"
     unzip -q "$src" -d "$root"
 
@@ -71,11 +61,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     # encoded as a literal backslash. Info-ZIP consequently creates separate
     # directories named `steamrtarm64\\libs` and `steamrtarm64\\swiftshader`
     # Recreate the intended links in the real directory and remove the artifacts
-    for name in "''${!STEAM_CLIENT_LINKS[@]}"; do
-      rm -f -- "$root/"'steamrtarm64\libs\'"$name"
+    ${lib.concatMapAttrsStringSep "\n" (name: target: ''
+      rm -f -- "$root/"'steamrtarm64\libs\'${lib.escapeShellArg name}
       ln --symbolic --no-target-directory -- \
-        "''${STEAM_CLIENT_LINKS[$name]}" "$client/libs/$name"
-    done
+        ${lib.escapeShellArg target} "$client/libs/"${lib.escapeShellArg name}
+    '') clientLinks}
     rmdir -- \
       "$root/"'steamrtarm64\libs' \
       "$root/"'steamrtarm64\swiftshader'
@@ -83,9 +73,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     # The CDN zip is produced with DOS attributes and carries no Unix execute
     # bits. Mark the actual programs/scripts executable while leaving data and
     # shared libraries non-executable
-    for name in "''${STEAM_CLIENT_EXECUTABLES[@]}"; do
-      chmod a+x -- "$client/$name"
-    done
+    chmod a+x -- ${
+      lib.concatMapStringsSep " " (name: ''"$client/"${lib.escapeShellArg name}'') clientExecutables
+    }
 
     runHook postInstall
   '';
@@ -93,60 +83,22 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   passthru = {
     updateChannel = "publicbeta";
     manifestUrl = "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_linuxarm64";
-    updateScript = lib.getExe (writeShellApplication {
-      name = "update-steam-arm64-client";
-      runtimeInputs = [
-        curl
-        gnused
-        python314
+    updateApplication = callPackage ./update.nix {
+      inherit finalAttrs;
+      manifestRoot = "linuxarm64";
+      archive = "bins_linuxarm64_linuxarm64";
+      packageFile = "pkgs/steam/client/package.nix";
+    };
+    updateScript = [
+      (lib.getExe finalAttrs.passthru.updateApplication)
+    ]
+    ++ nix-update-script {
+      attrPath = finalAttrs.pname;
+      extraArgs = [
+        "--flake"
+        "--system=${stdenvNoCC.hostPlatform.system}"
       ];
-      text = ''
-        release=$(curl --fail --silent --show-error ${finalAttrs.passthru.manifestUrl} | python3.14 -c '
-        import re
-        import sys
-        import vdf
-
-        release = vdf.load(sys.stdin)["linuxarm64"]
-        version = release["version"]
-        filename = release["bins_linuxarm64_linuxarm64"]["file"]
-        if not (
-            re.fullmatch(r"[0-9]+", version)
-            and re.fullmatch(
-                r"bins_linuxarm64_linuxarm64\.zip\.[0-9a-f]{40}", filename
-            )
-        ):
-            raise SystemExit("unrecognized ARM64 Steam manifest")
-        print(version, filename)
-        ')
-        read -r version filename <<< "$release"
-        if [[ "$version" == "${finalAttrs.version}" && "$filename" == "${builtins.baseNameOf finalAttrs.src.url}" ]]; then
-          echo "steam-arm64-client $version is already up to date"
-          exit 0
-        fi
-
-        package=pkgs/steam/client/package.nix
-        backup=$(mktemp)
-        cp "$package" "$backup"
-        trap 'cp "$backup" "$package"; rm -f "$backup"' EXIT
-        sed -i -E \
-          's#^([[:blank:]]*url = ")https://client-update\.fastly\.steamstatic\.com/bins_linuxarm64_linuxarm64\.zip\.[0-9a-f]+(";)#\1https://client-update.fastly.steamstatic.com/'"$filename"'\2#' \
-          "$package"
-        if [[ "$version" == "${finalAttrs.version}" ]]; then
-          version=skip
-        fi
-        ${
-          lib.escapeShellArgs (nix-update-script {
-            attrPath = "steam-arm64-client";
-            extraArgs = [
-              "--flake"
-              "--system=aarch64-linux"
-            ];
-          })
-        } --version="$version"
-        trap - EXIT
-        rm -f "$backup"
-      '';
-    });
+    };
     tests = {
       layout = runCommand "steam-arm64-client-layout-test" { } ''
         share=${finalAttrs.finalPackage}/share/steam-arm64-client

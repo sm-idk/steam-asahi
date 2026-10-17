@@ -1,57 +1,86 @@
-# /// script
-# requires-python = "==3.14.*"
-# dependencies = ["boltons", "msgspec"]
-# ///
-
 """Prepare FEX and Steam state, then launch Steam through muvm and FEX"""
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NoReturn
+
+import msgspec
 
 from common import (
-    PRESSURE_VESSEL_FILESYSTEMS_RO,
     STEAM_CLIENT_ARGS,
     LauncherError,
-    copy_bootstrap,
+    acquire_steam_lock,
+    configure_steam_state,
     exec_guest,
+    install_client_bootstrap,
     muvm_arguments,
     show_startup_splash,
+    steam_directory,
+    steam_guest_environment,
     warn_missing_audio_socket,
-    write_managed_value,
-    xdg_home,
 )
 from configuration import FexConfiguration
+from environment import xdg_home
 
 FEX_BASH_COMMAND = 'exec /bin/bash "$@"'
+ROOTFS_IMAGE_SUFFIXES = frozenset({".ero", ".img", ".sqsh"})
+ROOTFS_DISTRO = "Fedora"
+ROOTFS_VERSION = "44"
+STEAMRT64_MARKERS = (
+    ".steam-disable-steamrt64-client",
+    ".steam-enable-steamrt64-client",
+)
+FEX_XDG_HOMES = ("XDG_DATA_HOME", "XDG_CONFIG_HOME")
 
 
 class FexLauncher:
     def __init__(self, configuration: FexConfiguration) -> None:
         self.config = configuration
         self.home = Path.home()
-        self.data_home = xdg_home("XDG_DATA_HOME", ".local/share")
-        self.config_home = xdg_home("XDG_CONFIG_HOME", ".config")
-        self.data = self.data_home / "steam-asahi"
+        self.steam = steam_directory(self.home, xdg_home("XDG_DATA_HOME"))
+        self.client = self.steam / "steamrt64"
+        self.lock_descriptor: int | None = None
+
+    def acquire_lock(self, arguments: list[str]) -> None:
+        try:
+            self.lock_descriptor = acquire_steam_lock(self.steam, 0o600)
+        except BlockingIOError:
+            print("Forwarding command to the running x86 Steam client...")
+            self.run_steam(arguments, reuse_only=True)
+
+    def run_steam(
+        self, arguments: list[str], *, reuse_only: bool = False
+    ) -> NoReturn:
+        exec_guest(
+            self.muvm_arguments(
+                steam_guest_environment() | self.config["EXTRA_ENVIRONMENT"]
+            )
+            + self.fex_arguments(
+                self.config["FEX_STEAM_SCRIPT"],
+                [str(self.client / "steam"), *STEAM_CLIENT_ARGS, *arguments],
+            ),
+            self.lock_descriptor,
+            configuration=self.config,
+            reuse_only=reuse_only,
+        )
 
     def ensure_fex_rootfs(
         self, extra_environment: Mapping[str, str] | None = None
     ) -> None:
-        environment = dict(os.environ)
-        environment.update(extra_environment or {})
+        environment = os.environ | (extra_environment or {})
         if environment.get("FEX_ROOTFS"):
             return
-        data_home = Path(
-            environment.get("XDG_DATA_HOME") or str(self.data_home)
+        data_home = xdg_home("XDG_DATA_HOME", environment=environment)
+        config_home = xdg_home("XDG_CONFIG_HOME", environment=environment)
+        environment.update(
+            XDG_DATA_HOME=str(data_home), XDG_CONFIG_HOME=str(config_home)
         )
-        config_home = Path(
-            environment.get("XDG_CONFIG_HOME") or str(self.config_home)
-        )
-        legacy = self.home / ".fex-emu"
+        home = Path(environment.get("HOME") or self.home)
+        legacy = home / ".fex-emu"
         if legacy.is_dir():
             data = legacy
             config_path = legacy / "Config.json"
@@ -76,18 +105,17 @@ class FexLauncher:
         if rootfs.is_dir():
             for path in rootfs.iterdir():
                 # Bash's original glob ignored hidden entries
-                if (
-                    not path.name.startswith(".")
-                    and path.exists()
-                    and (
-                        path.is_dir()
-                        or path.suffix in (".ero", ".img", ".sqsh")
+                if not path.name.startswith(".") and (
+                    path.info.is_dir()
+                    or (
+                        path.info.is_file()
+                        and path.suffix in ROOTFS_IMAGE_SUFFIXES
                     )
                 ):
                     return
         try:
-            configuration = json.loads(config_path.read_text(encoding="utf-8"))
-        except OSError, ValueError:
+            configuration = msgspec.json.decode(config_path.read_bytes())
+        except OSError, msgspec.DecodeError:
             configuration = {}
         # FEX stores options in Config; accept the legacy top-level form too
         if isinstance(configuration, dict):
@@ -98,7 +126,8 @@ class FexLauncher:
                     return
 
         print(
-            "FEX rootfs not found. Downloading Fedora 44 rootfs...\n"
+            "FEX rootfs not found. Downloading "
+            f"{ROOTFS_DISTRO} {ROOTFS_VERSION} rootfs...\n"
             "This is a one-time setup (~1.3 GB download)."
         )
         try:
@@ -106,8 +135,8 @@ class FexLauncher:
                 [
                     self.config["FEX_ROOTFS_FETCHER"],
                     "--assume-yes",
-                    "--distro-name=Fedora",
-                    "--distro-version=44",
+                    f"--distro-name={ROOTFS_DISTRO}",
+                    f"--distro-version={ROOTFS_VERSION}",
                     "--distro-list-first",
                     "--as-is",
                 ],
@@ -134,8 +163,6 @@ class FexLauncher:
         )
         environment = {
             "PATH": path,
-            "XDG_DATA_HOME": str(self.data_home),
-            "XDG_CONFIG_HOME": str(self.config_home),
             **{
                 name: value
                 for name, value in os.environ.items()
@@ -144,6 +171,11 @@ class FexLauncher:
             },
         }
         environment.update(extra_environment or {})
+        host_environment = os.environ | environment
+        for name in FEX_XDG_HOMES:
+            environment[name] = str(
+                xdg_home(name, environment=host_environment)
+            )
         return muvm_arguments(config, environment, emulator="fex")
 
     def fex_arguments(self, script: str, arguments: list[str]) -> list[str]:
@@ -157,15 +189,22 @@ class FexLauncher:
             *arguments,
         ]
 
-    def install_steam_bootstrap(self) -> None:
-        marker = self.data / "bootstrap-installed"
-        destination = self.data / "steam-launcher"
-        if marker.is_file() and (destination / "bin_steam.sh").is_file():
-            return
-        print("Setting up Steam bootstrap...")
-        copy_bootstrap(self.config["STEAM_BOOTSTRAP"], destination)
-        write_managed_value(marker, "ok")
-        print("Steam bootstrap ready.")
+    def install_client_bootstrap(self) -> None:
+        install_client_bootstrap(
+            self.config["CLIENT_BOOTSTRAP"], self.client, "x86_64"
+        )
+
+    def configure_steam_state(self) -> None:
+        configure_steam_state(
+            self.home,
+            self.steam,
+            self.config["CLIENT_UPDATE_CHANNEL"],
+            {name: self.steam for name in ("root", "steam")},
+        )
+        # The client honors Valve's opt-out even when launched directly
+        # Remove our obsolete opt-in marker from earlier launcher versions too
+        for marker in STEAMRT64_MARKERS:
+            (self.steam / marker).unlink(missing_ok=True)
 
     def main(self, arguments: list[str]) -> None:
         if Path(self.config["MUVM_HOST_MOUNT"]).is_dir():
@@ -173,17 +212,14 @@ class FexLauncher:
                 "Already inside a muvm guest. Exit FEXBash and run "
                 "steam-asahi on the host."
             )
-        steam_environment = {
-            name: value
-            for argument in self.config["EXTRA_ENVIRONMENT_ARGS"][1::2]
-            for name, _, value in [argument.partition("=")]
-        }
-        self.ensure_fex_rootfs(
-            None if arguments[:1] == ["--fex"] else steam_environment
-        )
-        if arguments[:1] == ["--fex"]:
-            if len(arguments) != 2:
-                raise LauncherError("usage: steam-asahi --fex '<command>'")
+        diagnostic = arguments[:1] == ["--fex"]
+        if diagnostic and len(arguments) != 2:
+            raise LauncherError("usage: steam-asahi --fex '<command>'")
+        if not diagnostic:
+            self.acquire_lock(arguments)
+        steam_environment = self.config["EXTRA_ENVIRONMENT"]
+        self.ensure_fex_rootfs(None if diagnostic else steam_environment)
+        if diagnostic:
             exec_guest(
                 self.muvm_arguments()
                 + self.fex_arguments(
@@ -195,27 +231,11 @@ class FexLauncher:
         warn_missing_audio_socket()
         show_startup_splash(
             self.config["YAD"],
-            self.home / ".local/share/Steam/logs/cef_log.txt",
+            self.steam / "logs/cef_log.txt",
             10,
             "Starting Steam (microVM + FEX)...",
         )
-        self.install_steam_bootstrap()
-        print("Launching Steam via muvm + FEX...")
-        exec_guest(
-            self.muvm_arguments(
-                {
-                    "PRESSURE_VESSEL_FILESYSTEMS_RO": PRESSURE_VESSEL_FILESYSTEMS_RO,
-                    "STEAM_ASAHI_GUEST_UID": str(os.geteuid()),
-                }
-            )
-            + self.config["EXTRA_ENVIRONMENT_ARGS"]
-            + self.fex_arguments(
-                self.config["FEX_STEAM_SCRIPT"],
-                [
-                    str(self.data / "steam-launcher/bin_steam.sh"),
-                    *STEAM_CLIENT_ARGS,
-                    *arguments,
-                ],
-            ),
-            configuration=self.config,
-        )
+        self.install_client_bootstrap()
+        self.configure_steam_state()
+        print("Launching 64-bit Steam beta via muvm + FEX...")
+        self.run_steam(arguments)

@@ -20,11 +20,45 @@
   "nix": {
     "enabled": true
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^pkgs/steam/client/(?:package|x86_64)\\.nix$/"],
+      "matchStrings": [
+        "pname = \"(?<depName>steam-(?:arm64|x86_64)-client)\";[\\s\\S]*?version = \"(?<currentValue>[0-9]+)\";[\\s\\S]*?manifestUrl = \"https://client-update\\.fastly\\.steamstatic\\.com/steam_client_publicbeta_(?<packageName>linuxarm64|steamrt64)\";"
+      ],
+      "datasourceTemplate": "custom.steam-client",
+      "versioningTemplate": "regex:^(?<patch>\\d+)$"
+    }
+  ],
+  "customDatasources": {
+    "steam-client": {
+      "defaultRegistryUrlTemplate": "https://client-update.fastly.steamstatic.com/steam_client_publicbeta_{{{packageName}}}",
+      "format": "plain",
+      "transformTemplates": [
+        "{\"releases\":[{\"version\":$match($join(releases.version, '\\n'), /\"version\"\\s+\"([0-9]+)\"/).groups[0]}]}"
+      ]
+    }
+  },
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 5am on monday"]
   },
   "packageRules": [
+    {
+      "description": "Update both Steam beta bootstraps with their archive hashes",
+      "matchDatasources": ["custom.steam-client"],
+      "groupName": "Steam beta clients",
+      "groupSlug": "steam-beta-clients",
+      "postUpgradeTasks": {
+        "commands": ["nix run .#update-steam-clients"],
+        "executionMode": "branch",
+        "fileFilters": [
+          "pkgs/steam/client/package.nix",
+          "pkgs/steam/client/x86_64.nix"
+        ]
+      }
+    },
     {
       "description": "Keep GitHub Actions immutable while following releases",
       "matchManagers": ["github-actions"],

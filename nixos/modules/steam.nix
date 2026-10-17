@@ -109,7 +109,7 @@ in
       ];
       default = "x86-fex";
       description = ''
-        Steam client backend. `x86-fex` runs the established x86 client
+        Steam client backend. `x86-fex` runs the x86_64 public-beta client
         through FEX, while `arm64` runs Valve's experimental native ARM64
         public beta. Both use muvm because Asahi hosts use 16K pages while
         Valve's binaries currently require a conventional 4K-page environment.
@@ -234,12 +234,12 @@ in
       };
       description = ''
         Environment variables exported inside the selected Steam backend. Names
-        must be valid shell variable names, such as `MANGOHUD` or `STEAMOS`.
+        must be valid shell variable names, such as `MANGOHUD` or `FEX_MULTIBLOCK`.
         Backend defaults are merged per variable, so additional variables do
         not discard them. Set a variable to `null` to remove its backend
         default. Both backends set `GTK_IM_MODULE=xim` and
         `PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS=0`. The `x86-fex` backend also
-        sets `FEX_MULTIBLOCK=0`, `STEAMOS=1`, and `STEAM_RUNTIME=1`.
+        sets `FEX_MULTIBLOCK=0`.
       '';
     };
 

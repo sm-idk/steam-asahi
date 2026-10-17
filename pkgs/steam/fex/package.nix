@@ -24,6 +24,7 @@
   lsb-release,
   glibc,
   steam-unwrapped,
+  steam-x86_64-client,
   muvmHostMount ? "/run/muvm-host",
   cpuList ? null,
   memoryMiB ? null,
@@ -83,8 +84,6 @@ let
     };
   };
 
-  steamBootstrap = callPackage ./bootstrap.nix { inherit steam-unwrapped; };
-
   launcher = mkHostLauncher {
     runtimeInputs = [
       coreutils
@@ -93,12 +92,7 @@ let
     ];
     configuration = muvmArguments // {
       BACKEND = "x86-fex";
-      EXTRA_ENVIRONMENT_ARGS = lib.lists.concatLists (
-        lib.attrsets.mapAttrsToList (name: value: [
-          "-e"
-          "${name}=${value}"
-        ]) extraEnv
-      );
+      EXTRA_ENVIRONMENT = extraEnv;
       FEX_BASH = lib.meta.getExe' fex "FEXBash";
       FEX_DIAGNOSTIC_SCRIPT = lib.getExe fexDiagnostic;
       FEX_ROOTFS_FETCHER = lib.meta.getExe' fex "FEXRootFSFetcher";
@@ -113,7 +107,8 @@ let
         gnugrep
         squashfuse
       ];
-      STEAM_BOOTSTRAP = "${steamBootstrap}/steam-launcher";
+      CLIENT_BOOTSTRAP = "${steam-x86_64-client}/share/steam-x86_64-client/steamrt64";
+      CLIENT_UPDATE_CHANNEL = steam-x86_64-client.updateChannel;
       YAD = lib.meta.getExe yad;
     };
 
@@ -131,11 +126,12 @@ let
 in
 (mkLauncherPackage.override { inherit steam-unwrapped; }) {
   pname = "steam-asahi";
-  inherit (steam-unwrapped) version;
+  inherit (steam-x86_64-client) version;
   inherit launcher;
   desktopName = "Steam (Asahi)";
-  comment = "Steam on Apple Silicon via muvm + FEX-Emu";
+  comment = "64-bit Steam beta on Apple Silicon via muvm + FEX-Emu";
   passthru = {
+    inherit steam-x86_64-client;
     shellApplications = {
       inherit launcher;
       init = initScript;
@@ -143,6 +139,7 @@ in
       diagnostic = fexDiagnostic;
       steam = fexSteam;
     };
+    inherit (steam-x86_64-client) updateScript;
     backend = "x86-fex";
   };
 }

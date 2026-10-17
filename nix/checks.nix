@@ -18,6 +18,8 @@ let
     ) pkgs.steam-asahi-arm64.shellApplications
     // {
       renovate = pkgs.callPackage ./renovate.nix { };
+      update-arm64-client = pkgs.steam-arm64-client.updateApplication;
+      update-x86_64-client = pkgs.steam-x86_64-client.updateApplication;
     };
   # Check the final text without building target-only guest dependencies
   renderedScripts = lib.mapAttrsToList (

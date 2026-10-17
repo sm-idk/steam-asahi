@@ -1,5 +1,5 @@
 {
-  description = "Steam on NixOS Asahi Linux via x86/FEX or the native ARM64 beta";
+  description = "Steam on NixOS Asahi Linux via x86_64/FEX or the native ARM64 beta";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs";
 
@@ -34,7 +34,9 @@
       packages = lib.mapAttrs (
         system: pkgs:
         {
+          inherit (pkgs) steam-x86_64-client steam-arm64-client;
           renovate = pkgs.callPackage ./nix/renovate.nix { };
+          update-steam-clients = pkgs.callPackage ./nix/update-steam-clients.nix { };
           steam-asahi-options = pkgs.callPackage ./nix/options.nix {
             inherit nixpkgs;
             module = self.nixosModules.default;
@@ -47,7 +49,6 @@
             libkrun
             muvm
             fex
-            steam-arm64-client
             steam-asahi-arm64
             steam-asahi
             ;
