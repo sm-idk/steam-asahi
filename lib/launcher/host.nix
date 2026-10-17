@@ -2,7 +2,7 @@
   lib,
   writeShellApplication,
   writeText,
-  python314,
+  python315,
 }:
 {
   configuration,
@@ -10,7 +10,7 @@
   meta,
 }:
 let
-  python = python314.withPackages (packages: [
+  python = python315.withPackages (packages: [
     packages.boltons
     packages.msgspec
   ]);

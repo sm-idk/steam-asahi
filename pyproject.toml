@@ -1,17 +1,27 @@
 [project]
 name = "steam-asahi"
 version = "0.0.0"
-requires-python = "==3.14.*"
+requires-python = "==3.15.*"
 dependencies = [
-  "boltons>=25,<27",
-  "msgspec>=0.21.1,<0.23",
+  "aiotools>=2.2.4,<3",
+  "boltons>=26.2.0,<27",
+  "jeepney>=0.9,<0.10",
+  "msgspec>=0.22.0,<0.23",
+  "pillow>=12.3,<14",
+  "psutil>=7.2.2,<8",
+  "pycapnp>=2.2.3,<3",
+  "tenacity>=9.1,<10",
+  "typing-extensions>=4.15,<5",
   "vdf>=3.4,<4",
 ]
 
+[project.optional-dependencies]
+portal = ["pygobject>=3.56,<4"]
+
 [dependency-groups]
 dev = [
-  "ruff>=0.16.10,<0.17",
-  "ty>=0.0.85,<0.1",
+  "ruff>=0.17.1,<0.18",
+  "ty>=0.0.89,<0.1",
 ]
 
 [tool.uv]
@@ -19,7 +29,7 @@ package = false
 
 [tool.ruff]
 line-length = 80
-target-version = "py314"
+target-version = "py315"
 extend-exclude = [".direnv", "downloads"]
 
 [tool.ruff.lint]
@@ -30,7 +40,7 @@ select = ["E4", "E7", "E9", "F"]
 "tests/shell/launcher/imports.py" = ["E402"]
 
 [tool.ty.environment]
-python-version = "3.14"
+python-version = "3.15"
 python-platform = "linux"
 extra-paths = ["src/launcher"]
 
