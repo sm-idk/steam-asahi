@@ -3,6 +3,7 @@
   upstream,
   fetchFromGitHub,
   fetchurl,
+  nix-update-script,
 }:
 let
   libkrunfwOverrideVersion = "5.6.2";
@@ -22,6 +23,16 @@ let
         hash = "sha256-4JtnJ+XFISU/DUFpSQC5w4+3YE2301I4qBl6qffeJCg=";
       };
       makeFlags = (old.makeFlags or [ ]) ++ [ "KERNEL_VERSION=linux-${libkrunfwKernelVersion}" ];
+      passthru = (old.passthru or { }) // {
+        updateScript = nix-update-script {
+          attrPath = "libkrunfw";
+          extraArgs = [
+            "--flake"
+            "--system=aarch64-linux"
+            "--override-filename=pkgs/libkrunfw/override.nix"
+          ];
+        };
+      };
     }
   );
 in

@@ -14,19 +14,29 @@ final: prev:
   };
   # Import override expressions directly so the upstream .override API survives
   fex = import ./fex/override.nix {
-    inherit (final) lib;
+    inherit (final) lib nix-update-script;
     upstream = prev.fex;
   };
   libkrun = import ./libkrun/override.nix {
-    inherit (final) lib fetchFromGitHub rustPlatform;
+    inherit (final)
+      lib
+      fetchFromGitHub
+      rustPlatform
+      nix-update-script
+      ;
     upstream = prev.libkrun;
   };
   libkrunfw = import ./libkrunfw/override.nix {
-    inherit (final) lib fetchFromGitHub fetchurl;
+    inherit (final)
+      lib
+      fetchFromGitHub
+      fetchurl
+      nix-update-script
+      ;
     upstream = prev.libkrunfw;
   };
   muvm = import ./muvm/override.nix {
-    inherit (final) fetchFromGitHub rustPlatform;
+    inherit (final) fetchFromGitHub rustPlatform nix-update-script;
     upstream = prev.muvm;
   };
 }

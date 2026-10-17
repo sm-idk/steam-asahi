@@ -30,12 +30,6 @@
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
       "pinDigests": true
-    },
-    {
-      "description": "Update Renovate through the built-in workflow version manager",
-      "matchManagers": ["github-actions"],
-      "matchPackageNames": ["ghcr.io/renovatebot/renovate"],
-      "pinDigests": false
     }
   ]
 }

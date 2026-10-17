@@ -15,30 +15,23 @@ permissions:
 jobs:
   renovate:
     name: Update dependencies
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Require the Renovate token
-        # Use a PAT with Contents and Workflows write permissions so branch
-        # pushes trigger CI; keep Issues and Pull requests read-only
-        env:
-          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
-        run: |
-          if [[ -z "$RENOVATE_TOKEN" ]]; then
-            echo '::error::Add a RENOVATE_TOKEN repository secret.'
-            exit 1
-          fi
+      - name: Install Nix
+        uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+        with:
+          github_access_token: ${{ github.token }}
 
       - name: Run Renovate
-        uses: renovatebot/github-action@230ce922b08968d0a4f6f70f295601daff09ef1d # v46.3.7
-        with:
-          renovate-version: 44.148.4
-          token: ${{ secrets.RENOVATE_TOKEN }}
-          docker-cmd-file: .github/renovate.sh
+        # Use a PAT with Contents and Workflows write permissions so branch
+        # pushes trigger CI; keep Issues and Pull requests read-only
+        run: nix run .#renovate
         env:
+          RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
           LOG_LEVEL: info
           RENOVATE_ONBOARDING: "false"
           RENOVATE_PLATFORM: github

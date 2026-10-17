@@ -42,7 +42,6 @@ pkgs.treefmt.withConfig {
       shell = {
         command = lib.meta.getExe pkgs.shfmt;
         includes = [
-          ".github/renovate.sh"
           "src/guest/*.sh"
           "pkgs/steam/fex/guest/*.sh"
           "pkgs/steam/arm64/guest/*.sh"
