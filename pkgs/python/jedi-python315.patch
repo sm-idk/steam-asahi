@@ -1,0 +1,18 @@
+--- a/test/test_inference/test_sys_path.py
++++ b/test/test_inference/test_sys_path.py
+@@ -53,11 +53,12 @@
+         site_pkg_path,
+         pjoin(site_pkg_path, 'dir-from-foo-pth'),
+         '/foo/smth.py:module',
+-        # Not sure why it's added twice. It has to do with site.py which is not
+-        # something we can change. However this obviously also doesn't matter.
+-        '/foo/smth.py:from_func',
+         '/foo/smth.py:from_func',
+     ]
++
++    # Python 3.15 processes each virtualenv site directory only once
++    if virtualenv.version_info < (3, 15):
++        ETALON.append('/foo/smth.py:from_func')
+
+     # Ensure that pth and egg-link paths were added.
+     assert venv_paths[-len(ETALON):] == ETALON

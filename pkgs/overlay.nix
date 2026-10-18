@@ -9,6 +9,7 @@ final: prev:
       fetchPypi
       fetchFromGitHub
       tzdata
+      python314
       ;
     upstream = prev.python315;
   };
