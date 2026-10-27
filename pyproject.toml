@@ -2,30 +2,40 @@
 name = "steam-asahi"
 version = "0.0.0"
 requires-python = "==3.15.*"
+# Match the runtime package set selected by flake.lock and compatibility overrides
 dependencies = [
-  "aiotools>=2.2.4,<3",
-  "boltons>=26.2.0,<27",
-  "jeepney>=0.9,<0.10",
-  "msgspec>=0.22.0,<0.23",
-  "pillow>=12.3,<14",
-  "psutil>=7.2.2,<8",
-  "pycapnp>=2.2.3,<3",
-  "tenacity>=9.1,<10",
-  "typing-extensions>=4.15,<5",
-  "vdf>=3.4,<4",
+  "aiotools==2.2.4",
+  "anyio==4.15.1",
+  "boltons==25.0.0",
+  "jeepney==0.9.0",
+  "msgspec==0.21.1",
+  "pillow==12.3.0",
+  "psutil==7.2.2",
+  "pycapnp==2.2.3",
+  "tenacity==9.2.0",
+  "typing-extensions==4.16.0",
+  "vdf==3.4",
 ]
 
 [project.optional-dependencies]
-portal = ["pygobject>=3.56,<4"]
+portal = ["pygobject==3.56.3"]
 
 [dependency-groups]
 dev = [
-  "ruff>=0.17.1,<0.18",
-  "ty>=0.0.89,<0.1",
+  "packaging==26.3",
+  "ruff==0.17.2",
+  "tomlkit==0.15.1",
+  "ty==0.0.91",
 ]
 
 [tool.uv]
 package = false
+# Keep transitive runtime dependencies aligned with the same Nix package set
+constraint-dependencies = ["async-lru==2.3.0", "idna==3.18", "pycairo==1.29.0"]
+
+[tool.uv.sources]
+# Nixpkgs uses this upstream tag, which was not published on PyPI
+tenacity = { git = "https://github.com/jd/tenacity", rev = "refs/tags/9.2.0" }
 
 [tool.ruff]
 line-length = 80

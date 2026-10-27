@@ -19,6 +19,7 @@ let
   source = (import ../../nix/sources.nix { inherit lib; }).launcher;
   python = python315.withPackages (packages: [
     packages.aiotools
+    packages.anyio
     packages.boltons
     packages.jeepney
     packages.msgspec

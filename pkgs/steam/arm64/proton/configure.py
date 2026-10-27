@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.15
 # /// script
 # requires-python = "==3.15.*"
-# dependencies = ["boltons>=26.2.0,<27", "vdf>=3.4,<4"]
+# dependencies = ["boltons==25.0.0", "vdf==3.4"]
 # ///
 
 """Set one Steam application to use the managed ARM64 Proton tool"""

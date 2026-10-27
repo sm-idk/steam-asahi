@@ -3,13 +3,19 @@
   upstream,
   fetchPypi,
   fetchFromGitHub,
-  tzdata,
   python314,
 }:
 
 upstream.override (previous: {
   packageOverrides = lib.composeExtensions (previous.packageOverrides or (_: _: { })) (
     _: pythonPrev: {
+      # Match AnyIO's Python-version markers for its backport and loop tests
+      anyio = pythonPrev.anyio.overridePythonAttrs (old: {
+        nativeCheckInputs = lib.subtractLists [
+          pythonPrev.exceptiongroup
+          pythonPrev.uvloop
+        ] old.nativeCheckInputs;
+      });
       # Jedi's grammar discovery covers Python through 3.14
       jedi = pythonPrev.jedi.overridePythonAttrs (old: {
         nativeCheckInputs = (old.nativeCheckInputs or [ ]) ++ [ python314 ];
@@ -47,46 +53,6 @@ upstream.override (previous: {
           };
           # Match upstream's runner, which silences HTTP access logs
           pytestFlags = (old.pytestFlags or [ ]) ++ [ "--log-disable=tornado.access" ];
-        }
-      );
-      # pycapnp's build tooling needs time-machine with Python 3.15 support
-      time-machine = pythonPrev.time-machine.overridePythonAttrs (
-        _:
-        lib.optionalAttrs (lib.versionOlder pythonPrev.time-machine.version "3.5.1") {
-          version = "3.5.1";
-          src = fetchFromGitHub {
-            owner = "adamchainz";
-            repo = "time-machine";
-            tag = "3.5.1";
-            hash = "sha256-k/URZJz/kiPg20SYoOblaleIWdB8coaT/nHLAV7dDU0=";
-          };
-          TZDIR = "${tzdata}/share/zoneinfo";
-        }
-      );
-      boltons = pythonPrev.boltons.overridePythonAttrs (
-        _:
-        lib.optionalAttrs (lib.versionOlder pythonPrev.boltons.version "26.2.0") {
-          version = "26.2.0";
-          src = fetchPypi {
-            pname = "boltons";
-            version = "26.2.0";
-            hash = "sha256-05z9FcGhw71NcFyCJS+p7bjk9ejMA5+OOa+sextH6Sw=";
-          };
-          # This release includes nixpkgs' pytest 9 compatibility fix
-          patches = [ ];
-        }
-      );
-      msgspec = pythonPrev.msgspec.overridePythonAttrs (
-        _:
-        lib.optionalAttrs (lib.versionOlder pythonPrev.msgspec.version "0.22.0") {
-          version = "0.22.0";
-          src = fetchPypi {
-            pname = "msgspec";
-            version = "0.22.0";
-            hash = "sha256-ChNiSklpFZ/jXYwqPTd7K2G72FheMnRA1eUnJa/8zjg=";
-          };
-          # This release includes nixpkgs' Ext.code fix for big-endian hosts
-          patches = [ ];
         }
       );
       # Python 3.15 adds platform tags to stable-ABI extension suffixes
