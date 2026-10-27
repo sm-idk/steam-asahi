@@ -62,7 +62,7 @@ class Desktop(RPC.Desktop.Server):
     def __init__(
         self, opener: str, icons: IconStore | None, tasks: TaskScope
     ) -> None:
-        self.opener, self.icons, self.tasks = opener, icons, tasks
+        self.opener, self.icons = opener, icons
         self.calls = tasks
         self.owner = self
         self.operations = self.operation_bytes = 0

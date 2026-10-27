@@ -1,4 +1,4 @@
-"""Relay the session bus with opt-in typed resource negotiation"""
+"""Authenticate raw session sockets before selecting byte or typed relays"""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ import socket
 import struct
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_from_bytes, unquote_to_bytes
+
+lazy from anyio.abc import UNIXSocketStream
 
 lazy from environment import runtime_directory
 
@@ -151,11 +152,7 @@ class RawBusAuthentication:
         self.connection = connection
 
     async def byte(self) -> bytes:
-        from portal.descriptors import (
-            close_descriptors,
-            receive_ancillary,
-            socket_ready,
-        )
+        from portal.descriptors import close_descriptors, receive_ancillary
 
         if self.connection.family == socket.AF_VSOCK:
             data = await asyncio.get_running_loop().sock_recv(
@@ -164,20 +161,15 @@ class RawBusAuthentication:
             if not data:
                 raise asyncio.IncompleteReadError(b"", 1)
             return data
-        while True:
-            try:
-                data, descriptors = receive_ancillary(self.connection, 1)
-            except BlockingIOError, InterruptedError:
-                await socket_ready(self.connection)
-                continue
-            try:
-                if descriptors:
-                    raise ValueError("descriptors are invalid during bus auth")
-                if not data:
-                    raise asyncio.IncompleteReadError(b"", 1)
-                return data
-            finally:
-                close_descriptors(descriptors)
+        data, descriptors = await receive_ancillary(self.connection, 1)
+        try:
+            if descriptors:
+                raise ValueError("descriptors are invalid during bus auth")
+            if not data:
+                raise asyncio.IncompleteReadError(b"", 1)
+            return data
+        finally:
+            close_descriptors(descriptors)
 
     async def line(self) -> bytes:
         result = bytearray()
@@ -194,30 +186,9 @@ class RawBusAuthentication:
         await asyncio.get_running_loop().sock_sendall(self.connection, data)
 
 
-@dataclass
-class StreamBusAuthentication:
-    reader: asyncio.StreamReader
-    writer: asyncio.StreamWriter
-
-    async def byte(self) -> bytes:
-        return await self.reader.readexactly(1)
-
-    async def line(self) -> bytes:
-        line = await self.reader.readuntil(b"\r\n")
-        if len(line) > BUS_AUTH_LIMIT:
-            raise ValueError(
-                "session bus authentication line exceeds its limit"
-            )
-        return line
-
-    async def send(self, data: bytes) -> None:
-        self.writer.write(data)
-        await self.writer.drain()
-
-
 async def relay_bus_auth(
-    caller: RawBusAuthentication | StreamBusAuthentication,
-    upstream: RawBusAuthentication | StreamBusAuthentication,
+    caller: RawBusAuthentication,
+    upstream: RawBusAuthentication,
     *,
     credentials: bytes | None = None,
     disable_fds: bool = False,
@@ -313,18 +284,7 @@ async def guest_resource_bus_request(
                 connection, upstream, "guest", helper=Path(helper_path)
             )
         elif response == RESOURCE_AUTH_DISABLED:
-            reader, writer = await asyncio.open_connection(
-                sock=connection, limit=BUS_AUTH_LIMIT
-            )
-            remote_reader, remote_writer = await asyncio.open_connection(
-                sock=upstream, limit=BUS_AUTH_LIMIT
-            )
-            try:
-                await relay_guest_bus(
-                    reader, writer, remote_reader, remote_writer
-                )
-            finally:
-                await close_streams(writer, remote_writer)
+            await relay_guest_bus(connection, upstream)
         else:
             raise ValueError("unknown session bus resource availability reply")
 
@@ -366,78 +326,47 @@ async def host_bus_request(
     *,
     credentials: bytes | None = None,
 ) -> None:
-    reader, writer = await asyncio.open_connection(
-        sock=connection, limit=BUS_AUTH_LIMIT
-    )
-    writers = [writer]
-    try:
-        upstream = await connect_session_bus(address)
-        try:
-            upstream_reader, upstream_writer = await asyncio.open_connection(
-                sock=upstream, limit=BUS_AUTH_LIMIT
-            )
-        except BaseException:
-            upstream.close()
-            raise
-        writers.append(upstream_writer)
+    with await connect_session_bus(address) as upstream:
         await relay_bus_auth(
-            StreamBusAuthentication(reader, writer),
-            StreamBusAuthentication(upstream_reader, upstream_writer),
+            RawBusAuthentication(connection),
+            RawBusAuthentication(upstream),
             credentials=credentials,
             disable_fds=True,
         )
-        await relay_streams(
-            (reader, writer),
-            (upstream_reader, upstream_writer),
-            upstream_name="host session bus",
-        )
-    finally:
-        await close_streams(*writers)
+        async with (
+            await UNIXSocketStream.from_socket(connection) as caller,
+            await UNIXSocketStream.from_socket(upstream) as host,
+        ):
+            await relay_streams(caller, host, upstream_name="host session bus")
 
 
 async def guest_bus_request(connection: socket.socket) -> None:
-    reader, writer = await asyncio.open_connection(
-        sock=connection, limit=BUS_AUTH_LIMIT
-    )
-    upstream = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
-    upstream.setblocking(False)
-    writers = [writer]
-    try:
+    with socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as upstream:
+        upstream.setblocking(False)
         async with asyncio.timeout(15):
             await asyncio.get_running_loop().sock_connect(
                 upstream, (socket.VMADDR_CID_HOST, BUS_PORT)
             )
-        upstream_reader, upstream_writer = await asyncio.open_connection(
-            sock=upstream
-        )
-        writers.append(upstream_writer)
-        await relay_guest_bus(reader, writer, upstream_reader, upstream_writer)
-    finally:
-        await close_streams(*writers)
-        upstream.close()
+        await relay_guest_bus(connection, upstream)
 
 
 async def relay_guest_bus(
-    reader: asyncio.StreamReader,
-    writer: asyncio.StreamWriter,
-    upstream_reader: asyncio.StreamReader,
-    upstream_writer: asyncio.StreamWriter,
+    connection: socket.socket, upstream: socket.socket
 ) -> None:
     from resources import Namespace
 
-    peer = writer.get_extra_info("socket")
     caller_pid = None
     namespace = None
-    if peer is not None and peer.family == socket.AF_UNIX:
+    if connection.family == socket.AF_UNIX:
         pid, uid, _ = PEER_CREDENTIALS.unpack(
-            peer.getsockopt(
+            connection.getsockopt(
                 socket.SOL_SOCKET, socket.SO_PEERCRED, PEER_CREDENTIALS.size
             )
         )
         if pid > 0 and uid == os.geteuid():
             caller_pid = pid
             try:
-                namespace = Namespace.from_socket(peer)
+                namespace = Namespace.from_socket(connection)
                 if namespace.pid != caller_pid:
                     namespace.close()
                     namespace = None
@@ -447,21 +376,32 @@ async def relay_guest_bus(
                     f"WARNING: Caller file resources unavailable: {error}",
                     file=sys.stderr,
                 )
-    # Relay authentication before framing binary messages. Leave Unix FD
-    # negotiation to the host relay, which continues to decline it
     try:
+        # Finish auth before asyncio can read ahead into binary or SCM_RIGHTS
+        # The host still declines FD negotiation for the byte relay
         await relay_bus_auth(
-            StreamBusAuthentication(reader, writer),
-            StreamBusAuthentication(upstream_reader, upstream_writer),
+            RawBusAuthentication(connection),
+            RawBusAuthentication(upstream),
         )
-        from portal.portal import MessageStream, relay_portal_messages
+        reader, writer = await asyncio.open_connection(
+            sock=connection, limit=BUS_AUTH_LIMIT
+        )
+        writers = [writer]
+        try:
+            upstream_reader, upstream_writer = await asyncio.open_connection(
+                sock=upstream, limit=BUS_AUTH_LIMIT
+            )
+            writers.append(upstream_writer)
+            from portal.portal import MessageStream, relay_portal_messages
 
-        await relay_portal_messages(
-            MessageStream.from_streams(reader, writer),
-            MessageStream.from_streams(upstream_reader, upstream_writer),
-            caller_pid=caller_pid,
-            namespace=namespace,
-        )
+            await relay_portal_messages(
+                MessageStream.from_streams(reader, writer),
+                MessageStream.from_streams(upstream_reader, upstream_writer),
+                caller_pid=caller_pid,
+                namespace=namespace,
+            )
+        finally:
+            await close_streams(*writers)
     finally:
         if namespace is not None:
             namespace.close()

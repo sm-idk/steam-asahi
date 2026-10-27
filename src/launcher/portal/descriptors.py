@@ -101,15 +101,20 @@ async def wait_unix_disconnect(connection: socket.socket) -> None:
                 return
 
 
-def receive_ancillary(
+async def receive_ancillary(
     connection: socket.socket, size: int
 ) -> tuple[bytes, list[int]]:
     width = array.array("i").itemsize
-    data, controls, flags, _ = connection.recvmsg(
-        size,
-        socket.CMSG_SPACE(MAX_KERNEL_DESCRIPTORS * width),
-        socket.MSG_CMSG_CLOEXEC,
-    )
+    while True:
+        try:
+            data, controls, flags, _ = connection.recvmsg(
+                size,
+                socket.CMSG_SPACE(MAX_KERNEL_DESCRIPTORS * width),
+                socket.MSG_CMSG_CLOEXEC,
+            )
+            break
+        except BlockingIOError, InterruptedError:
+            await socket_ready(connection)
     descriptors: list[int] = []
     invalid = False
     try:
@@ -170,13 +175,9 @@ class UnixMessageSocket:
     async def _read_exactly(self, size: int, descriptors: list[int]) -> bytes:
         result = bytearray()
         while len(result) < size:
-            try:
-                data, received = receive_ancillary(
-                    self.connection, min(size - len(result), 65536)
-                )
-            except BlockingIOError, InterruptedError:
-                await socket_ready(self.connection)
-                continue
+            data, received = await receive_ancillary(
+                self.connection, min(size - len(result), 65536)
+            )
             descriptors.extend(received)
             if len(descriptors) > MAX_DESCRIPTORS:
                 raise ValueError("too many D-Bus descriptors")
@@ -224,31 +225,33 @@ class UnixMessageSocket:
         async with self.sending:
             try:
                 async with asyncio.timeout(IO_TIMEOUT):
-                    offset = 0
-                    while offset < len(data):
-                        controls = []
-                        if offset == 0 and descriptors:
-                            controls = [
-                                (
-                                    socket.SOL_SOCKET,
-                                    socket.SCM_RIGHTS,
-                                    array.array("i", descriptors),
-                                )
-                            ]
-                        try:
-                            count = self.connection.sendmsg(
-                                [memoryview(data)[offset:]],
-                                controls,
-                                socket.MSG_NOSIGNAL,
+                    sent = 0
+                    if descriptors:
+                        controls = [
+                            (
+                                socket.SOL_SOCKET,
+                                socket.SCM_RIGHTS,
+                                array.array("i", descriptors),
                             )
-                        except BlockingIOError, InterruptedError:
-                            await socket_ready(self.connection, write=True)
-                            continue
-                        if count == 0:
+                        ]
+                        while True:
+                            try:
+                                sent = self.connection.sendmsg(
+                                    [data], controls, socket.MSG_NOSIGNAL
+                                )
+                                break
+                            except BlockingIOError, InterruptedError:
+                                await socket_ready(self.connection, write=True)
+                        if sent == 0:
                             raise ConnectionError(
                                 "D-Bus write made no progress"
                             )
-                        offset += count
+                    # SCM_RIGHTS accompanies only the first successful write
+                    # asyncio owns partial writes of the remaining plain bytes
+                    await asyncio.get_running_loop().sock_sendall(
+                        self.connection,
+                        memoryview(data)[sent:] if sent else data,
+                    )
             except BaseException:
                 self.close()
                 raise
@@ -338,14 +341,9 @@ class RegistryClient:
                             break
                         except BlockingIOError, InterruptedError:
                             await socket_ready(self.connection, write=True)
-                    while True:
-                        try:
-                            reply, descriptors = receive_ancillary(
-                                self.connection, REGISTRY_FRAME.size + 1
-                            )
-                            break
-                        except BlockingIOError, InterruptedError:
-                            await socket_ready(self.connection)
+                    reply, descriptors = await receive_ancillary(
+                        self.connection, REGISTRY_FRAME.size + 1
+                    )
                     try:
                         if descriptors or len(reply) != REGISTRY_FRAME.size:
                             raise ValueError("invalid registry response length")

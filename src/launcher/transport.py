@@ -14,6 +14,8 @@ from functools import partial
 from pathlib import Path
 
 lazy from aiotools import TaskContext, TaskScope, race
+lazy from anyio import BrokenResourceError, ClosedResourceError
+lazy from anyio.abc import ByteStream
 
 lazy from services import (
     control_server,
@@ -30,7 +32,6 @@ OPEN_PORT = 50199
 BUS_PORT = 50198
 LISTENER_BACKLOG = 64
 MAX_CONNECTIONS = 256
-RELAY_BUFFER_BYTES = 65536
 
 
 @dataclass(frozen=True)
@@ -81,22 +82,21 @@ def start_listener(
 
 
 async def relay_streams(
-    first: tuple[asyncio.StreamReader, asyncio.StreamWriter],
-    second: tuple[asyncio.StreamReader, asyncio.StreamWriter],
+    first: ByteStream,
+    second: ByteStream,
     *,
     upstream_name: str | None = None,
 ) -> None:
     client_closed = False
 
     async def copy(
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
+        source: ByteStream,
+        destination: ByteStream,
         upstream: bool,
     ) -> None:
         nonlocal client_closed
-        while data := await reader.read(RELAY_BUFFER_BYTES):
-            writer.write(data)
-            await writer.drain()
+        async for data in source:
+            await destination.send(data)
         if not upstream:
             client_closed = True
         elif upstream_name and not client_closed:
@@ -105,17 +105,15 @@ async def relay_streams(
                 "reconnect, but restart Steam if existing clients fail",
                 file=sys.stderr,
             )
-        if writer.can_write_eof():
-            writer.write_eof()
-            await writer.drain()
+        await destination.send_eof()
 
     async with aclosing(TaskContext(exception_handler=None)) as tasks:
         # Drain both directions on half-close; cancel the peer on errors
-        first_copy = tasks.create_task(copy(first[0], second[1], False))
-        second_copy = tasks.create_task(copy(second[0], first[1], True))
+        first_copy = tasks.create_task(copy(first, second, False))
+        second_copy = tasks.create_task(copy(second, first, True))
         try:
             await asyncio.gather(first_copy, second_copy)
-        except ConnectionError:
+        except BrokenResourceError, ClosedResourceError:
             pass
 
 
