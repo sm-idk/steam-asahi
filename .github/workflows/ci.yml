@@ -29,6 +29,9 @@ jobs:
       - name: Evaluate every flake output
         run: nix flake check --all-systems --no-build --print-build-logs
 
+      - name: Check Python dependency alignment
+        run: nix run .#update-python-deps -- --check
+
       - name: Build portable checks
         run: nix flake check --print-build-logs
 

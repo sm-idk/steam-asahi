@@ -40,7 +40,7 @@ writeShellApplication {
   ];
   runtimeEnv = {
     RENOVATE_BINARY_SOURCE = "global";
-    RENOVATE_ALLOWED_COMMANDS = "^nix run [.]#update-steam-clients$";
+    RENOVATE_ALLOWED_COMMANDS = "^nix run [.]#update-python-deps$";
   };
   text = ''
     if [[ -z "''${RENOVATE_TOKEN:-}" ]]; then
