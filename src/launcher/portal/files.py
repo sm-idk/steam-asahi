@@ -26,6 +26,9 @@ from .protocol import (
 from resources import Namespace, local_file_uri
 
 NO_REPLY_EXPECTED = int(MessageFlag.no_reply_expected)
+CHOOSER_MODES = frozendict(
+    {"OpenFile": "read", "SaveFile": "save", "SaveFiles": "save"}
+)
 
 
 @dataclass
@@ -137,9 +140,15 @@ class FilePortalRelay:
                     self.handles.pop(key)
                     self.closed[key] = None
             return False
-        if not matches(
-            message, interface=CHOOSER, path=PORTAL_PATH, signature="ssa{sv}"
-        ) or member not in ("OpenFile", "SaveFile", "SaveFiles"):
+        if (
+            not matches(
+                message,
+                interface=CHOOSER,
+                path=PORTAL_PATH,
+                signature="ssa{sv}",
+            )
+            or member not in CHOOSER_MODES
+        ):
             return False
         if self.namespace is None:
             raise ValueError(
@@ -161,6 +170,7 @@ class FilePortalRelay:
             # only wants Response. Suppress this internal return on the way back
             message.header.flags &= ~NO_REPLY_EXPECTED
             changed = True
+        mode = CHOOSER_MODES[member]
         for key in ("current_folder", "current_file"):
             if key not in options:
                 continue
@@ -174,7 +184,7 @@ class FilePortalRelay:
                     raise ValueError("invalid file chooser path hint")
                 path = self.namespace.host_path(
                     Path(os.fsdecode(value[:-1])),
-                    save=member != "OpenFile" and key == "current_file",
+                    save=mode == "save" and key == "current_file",
                 )
                 options[key] = ("ay", os.fsencode(path) + b"\0")
             except (OSError, ValueError) as error:
@@ -184,12 +194,10 @@ class FilePortalRelay:
                     file=sys.stderr,
                 )
             changed = True
+        if mode == "read" and options.get("writable") == ("b", True):
+            mode = "write"
         self.pending[message.header.serial] = ChooserCall(
-            "save"
-            if member != "OpenFile"
-            else "write"
-            if options.get("writable") == ("b", True)
-            else "read",
+            mode,
             f"{PORTAL_PATH}/request/{unique_name[1:].replace('.', '_')}/{token[1]}",
             no_reply=no_reply,
         )

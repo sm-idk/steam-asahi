@@ -17,17 +17,16 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 lazy from environment import runtime_directory, xdg_home
-lazy from portal.protocol import DESKTOP_SERVICES
+lazy from portal.protocol import DESCRIPTOR_METHODS, DESKTOP_SERVICES
 lazy from resources import HOST_ROOT
 lazy from session import connect_session_bus, find_session_bus
 lazy from transport import OPEN_PORT
 lazy from wayland import WAYLAND_SOCKET_NAME
 
 DIAGNOSTIC_SCOPES = ("host", "guest", "runtime")
-DESCRIPTOR_OPERATIONS = (
-    "OpenURI.OpenFile",
-    "OpenURI.OpenDirectory",
-    "ScreenCast.OpenPipeWireRemote",
+DESCRIPTOR_OPERATIONS = tuple(
+    f"{interface.rsplit('.', 1)[-1]}.{member}"
+    for interface, member, _signature in DESCRIPTOR_METHODS
 )
 BROKEN_STATUSES = frozenset({"transport-failed", "authentication-failed"})
 

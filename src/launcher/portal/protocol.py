@@ -1,4 +1,4 @@
-"""Names and limits shared by desktop portal relays and diagnostics"""
+"""Names, operation policies, and limits shared by desktop portal consumers"""
 
 from functools import lru_cache
 
@@ -28,6 +28,13 @@ INHIBIT = "org.freedesktop.portal.Inhibit"
 SCREENCAST = "org.freedesktop.portal.ScreenCast"
 SESSION = "org.freedesktop.portal.Session"
 DESKTOP_SERVICES = (PORTAL, DOCUMENTS, NOTIFICATIONS)
+DESCRIPTOR_METHODS = frozendict(
+    {
+        (OPEN_URI, "OpenFile", "sha{sv}"): "shared-file",
+        (OPEN_URI, "OpenDirectory", "sha{sv}"): "shared-file",
+        (SCREENCAST, "OpenPipeWireRemote", "oa{sv}"): "pipewire",
+    }
+)
 
 MAX_REQUESTS = 128
 MAX_MESSAGE_BYTES = 128 * 1024 * 1024

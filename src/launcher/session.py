@@ -355,7 +355,6 @@ async def relay_guest_bus(
 ) -> None:
     from resources import Namespace
 
-    caller_pid = None
     namespace = None
     if connection.family == socket.AF_UNIX:
         pid, uid, _ = PEER_CREDENTIALS.unpack(
@@ -364,10 +363,9 @@ async def relay_guest_bus(
             )
         )
         if pid > 0 and uid == os.geteuid():
-            caller_pid = pid
             try:
                 namespace = Namespace.from_socket(connection)
-                if namespace.pid != caller_pid:
+                if namespace.pid != pid:
                     namespace.close()
                     namespace = None
                     raise ValueError("the socket creator identity changed")
@@ -397,7 +395,6 @@ async def relay_guest_bus(
             await relay_portal_messages(
                 MessageStream.from_streams(reader, writer),
                 MessageStream.from_streams(upstream_reader, upstream_writer),
-                caller_pid=caller_pid,
                 namespace=namespace,
             )
         finally:

@@ -27,16 +27,16 @@ from jeepney import (
 )
 from jeepney.low_level import calc_msg_size
 
-from desktop import send_steam_uri_async
+from desktop import STEAM_URI_SCHEMES, send_steam_uri_async
 from .files import FilePortalRelay
 from .protocol import (
+    DESCRIPTOR_METHODS,
     MAX_MESSAGE_BYTES,
     MAX_REQUESTS,
     OPEN_URI,
     PORTAL,
     PORTAL_PATH,
     REQUEST,
-    SCREENCAST,
     matches,
 )
 
@@ -72,21 +72,14 @@ def descriptor_operation(message: Message) -> str | None:
         destination == PORTAL or destination.startswith(":")
     ):
         return None
-    if matches(
-        message,
-        interface=SCREENCAST,
-        member="OpenPipeWireRemote",
-        signature="oa{sv}",
-    ):
-        return "pipewire"
-    if matches(
-        message, interface=OPEN_URI, signature="sha{sv}"
-    ) and message.header.fields.get(HeaderFields.member) in (
-        "OpenFile",
-        "OpenDirectory",
-    ):
-        return "shared-file"
-    return None
+    fields = message.header.fields
+    return DESCRIPTOR_METHODS.get(
+        (
+            fields.get(HeaderFields.interface),
+            fields.get(HeaderFields.member),
+            fields.get(HeaderFields.signature),
+        )
+    )
 
 
 def steam_request_path(message: Message, unique_name: str) -> str:
@@ -155,7 +148,6 @@ async def relay_portal_messages(
     local: MessageStream,
     remote: MessageStream,
     *,
-    caller_pid: int | None = None,
     namespace: Namespace | None = None,
 ) -> None:
     # Keep one upstream connection per caller: portal sessions, notification
@@ -258,7 +250,7 @@ async def relay_portal_messages(
                     and fields.get(HeaderFields.signature) == "ssa{sv}"
                     and len(message.body) == 3
                     and message.body[1].partition(":")[0].casefold()
-                    in ("steam", "steamlink")
+                    in STEAM_URI_SCHEMES
                 ):
                     if len(pending) + len(requests) >= MAX_REQUESTS:
                         if not message.header.flags & NO_REPLY_EXPECTED:
