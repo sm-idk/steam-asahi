@@ -20,8 +20,8 @@ from jeepney import (
     Message,
     MessageFlag,
     MessageType,
+    Properties,
     new_error,
-    new_method_call,
     new_method_return,
     new_signal,
 )
@@ -300,16 +300,13 @@ async def relay_portal_messages(
                     # Ask the real portal for its interface version using the
                     # same serial. Its reply establishes the live portal owner
                     # without ever giving the host desktop the Steam URI
-                    probe = new_method_call(
+                    probe = Properties(
                         DBusAddress(
                             PORTAL_PATH,
                             bus_name=fields[HeaderFields.destination],
-                            interface="org.freedesktop.DBus.Properties",
-                        ),
-                        "Get",
-                        "ss",
-                        (OPEN_URI, "version"),
-                    )
+                            interface=OPEN_URI,
+                        )
+                    ).get("version")
                     probe.header.flags = (
                         message.header.flags & ~NO_REPLY_EXPECTED
                     )

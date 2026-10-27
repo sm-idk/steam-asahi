@@ -18,7 +18,6 @@ from contextlib import ExitStack, suppress
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
 
 import msgspec
 
@@ -37,10 +36,17 @@ MAX_ICON_CACHE_BYTES = 64 * 1024 * 1024
 MAX_ICON_CACHE_FILES = 1024
 HOST_IDENTITY_XATTR = "user.steam_asahi.host_identity.v1"
 HOST_IDENTITY = struct.Struct("<8sQQII")
+# openat2 uses the same syscall number on AArch64 and x86-64
+SYS_OPENAT2 = 437
+RESOLVE_NO_MAGICLINKS = 0x02
+RESOLVE_IN_ROOT = 0x10
 DESCRIPTOR_ACCESS = {
     os.O_RDONLY: "read",
     os.O_WRONLY: "write",
     os.O_RDWR: "read-write",
+}
+_DESCRIPTOR_FLAGS = {value: key for key, value in DESCRIPTOR_ACCESS.items()} | {
+    "path": os.O_PATH
 }
 
 
@@ -148,8 +154,6 @@ def reopen_descriptor(manifest: dict) -> int:
     resource = msgspec.convert(manifest, type=SharedFileManifest, strict=True)
     identity = resource.identity
     access, append, offset = resource.access, resource.append, resource.offset
-    modes = {value: key for key, value in DESCRIPTOR_ACCESS.items()}
-    modes["path"] = os.O_PATH
     if identity.type == stat.S_IFDIR and (append or offset is not None):
         raise ValueError("directory cursor transfer is unsupported")
     if access == "path" and (append or offset is not None):
@@ -172,7 +176,7 @@ def reopen_descriptor(manifest: dict) -> int:
         if access == "path":
             result = os.dup(pinned)
         else:
-            flags = modes[access] | os.O_CLOEXEC | os.O_NONBLOCK
+            flags = _DESCRIPTOR_FLAGS[access] | os.O_CLOEXEC | os.O_NONBLOCK
             if append:
                 flags |= os.O_APPEND
             result = os.open(f"/proc/self/fd/{pinned}", flags)
@@ -195,7 +199,7 @@ class IconStore:
         self.directory = tempfile.TemporaryDirectory(
             prefix=".notification-icons-", dir=runtime
         )
-        self.files: dict[str, int] = {}
+        self.files: set[str] = set()
         self.size = 0
 
     def __enter__(self) -> IconStore:
@@ -240,14 +244,14 @@ class IconStore:
                 or len(self.files) >= MAX_ICON_CACHE_FILES
             ):
                 raise ValueError("notification icon cache is full")
+            # Writes are synchronous within this store's private directory
             with atomic_save(
-                path,
+                os.fspath(path),
                 overwrite=False,
                 file_perms=0o600,
-                part_file=f".{uuid4().hex}",
             ) as output:
                 output.write(data)
-            self.files[name] = len(data)
+            self.files.add(name)
             self.size += len(data)
         return path.as_uri()
 
@@ -339,13 +343,10 @@ class Namespace:
         if self.pidfd < 0 or select.select([self.pidfd], [], [], 0)[0]:
             raise ProcessLookupError("the requesting process has exited")
         current_namespace = os.stat(f"/proc/{self.pid}/ns/mnt")
-        root = os.fstat(self.root)
-        current_root = os.stat(f"/proc/{self.pid}/root")
         if current_namespace.st_ino != os.fstat(
             self.mount_namespace
-        ).st_ino or (root.st_dev, root.st_ino) != (
-            current_root.st_dev,
-            current_root.st_ino,
+        ).st_ino or not os.path.samestat(
+            os.fstat(self.root), os.stat(f"/proc/{self.pid}/root")
         ):
             raise ValueError(
                 "the requesting process changed its filesystem root"
@@ -367,18 +368,15 @@ class Namespace:
             raise ValueError(
                 "resource resolution cannot create or truncate files"
             )
-        # openat2 is syscall 437 on both supported Linux architectures
-        #
-        # IN_ROOT resolves absolute symlinks in the caller's root; merely
-        # opening /proc/PID/root/path would follow them in the broker's root
-        # NO_MAGICLINKS rejects procfs descriptor links escaping that root
+        # Resolve absolute symlinks in the caller's root, but reject procfs
+        # descriptor links that could escape it
         how = OpenHow(
             flags=os.O_PATH | os.O_CLOEXEC | (flags & os.O_DIRECTORY),
-            resolve=0x10 | 0x02,
+            resolve=RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS,
         )
         libc = ctypes.CDLL(None, use_errno=True)
         result = libc.syscall(
-            ctypes.c_long(437),
+            ctypes.c_long(SYS_OPENAT2),
             ctypes.c_int(self.root),
             ctypes.c_char_p(os.fsencode(path).lstrip(b"/") or b"."),
             ctypes.byref(how),
@@ -606,53 +604,42 @@ class Namespace:
         if response.kind is None:
             raise ValueError("the host returned an invalid file resource")
         canonical, query, fragment = local_file_uri(response.uri)
+        new_file = response.kind == "new-file"
+        access = (
+            os.O_PATH | os.O_DIRECTORY
+            if new_file
+            else (os.O_RDONLY if mode == "read" else os.O_WRONLY)
+            | os.O_NONBLOCK
+        )
+        expected = canonical.parent if new_file else canonical
         failures = []
         for candidate in (HOST_ROOT / canonical.relative_to("/"), canonical):
             try:
-                if response.kind == "new-file":
-                    descriptor = self.open(
-                        candidate.parent, os.O_PATH | os.O_DIRECTORY
-                    )
-                    try:
-                        if (
-                            self.host_path_for_fd(descriptor)
-                            != canonical.parent
-                        ):
-                            raise ValueError(
-                                "save directory maps to another host path"
-                            )
-                        if not os.access(
-                            ".",
-                            os.W_OK | os.X_OK,
-                            dir_fd=descriptor,
-                            effective_ids=True,
-                        ):
-                            raise PermissionError(
-                                "save directory is not writable"
-                            )
-                    finally:
-                        os.close(descriptor)
+                descriptor = self.open(
+                    candidate.parent if new_file else candidate, access
+                )
+                try:
+                    if self.host_path_for_fd(descriptor) != expected:
+                        raise ValueError(
+                            "save directory maps to another host path"
+                            if new_file
+                            else "selected file maps to another host path"
+                        )
+                    if new_file and not os.access(
+                        ".",
+                        os.W_OK | os.X_OK,
+                        dir_fd=descriptor,
+                        effective_ids=True,
+                    ):
+                        raise PermissionError("save directory is not writable")
+                finally:
+                    os.close(descriptor)
+                if new_file:
                     with suppress(FileNotFoundError):
                         if self.host_path(candidate) != canonical:
                             raise ValueError(
                                 "save destination maps to another host path"
                             )
-                else:
-                    access = os.O_RDONLY if mode == "read" else os.O_WRONLY
-                    descriptor = self.open(candidate, access | os.O_NONBLOCK)
-                    try:
-                        metadata = os.fstat(descriptor)
-                        if not (
-                            stat.S_ISREG(metadata.st_mode)
-                            or stat.S_ISDIR(metadata.st_mode)
-                        ):
-                            raise ValueError("unsupported selected file type")
-                        if self.host_path_for_fd(descriptor) != canonical:
-                            raise ValueError(
-                                "selected file maps to another host path"
-                            )
-                    finally:
-                        os.close(descriptor)
                 return file_uri(candidate, query, fragment)
             except (OSError, ValueError) as error:
                 failures.append(str(error))

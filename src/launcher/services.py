@@ -14,12 +14,14 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import ExitStack, aclosing, contextmanager, suppress
 from pathlib import Path
 
 import msgspec
 
 lazy import psutil
+lazy from aiotools import TaskContext
+lazy from anyio import wait_readable
 
 DESKTOP_IDENTITY_VARIABLES = (
     "HOME",
@@ -184,15 +186,13 @@ def vm_running(path: Path) -> bool:
 async def watch_owner(
     parent_fd: int, stopped: asyncio.Event, vm_lock: Path | None
 ) -> None:
-    loop = asyncio.get_running_loop()
-    parent_exited = asyncio.Event()
+    async def parent_exit() -> None:
+        await wait_readable(parent_fd)
 
-    def parent_ready() -> None:
-        loop.remove_reader(parent_fd)
-        parent_exited.set()
-
-    loop.add_reader(parent_fd, parent_ready)
-    try:
+    # The supervisor keeps the pidfd open until this scope has cancelled and
+    # awaited its reader, so descriptor reuse cannot race readiness cleanup
+    async with aclosing(TaskContext(exception_handler=None)) as tasks:
+        parent_exited = tasks.create_task(parent_exit())
         seen_vm = False
         while not stopped.is_set():
             try:
@@ -201,7 +201,7 @@ async def watch_owner(
                 stopped.set()
                 return
             seen_vm |= running
-            if not running and (seen_vm or parent_exited.is_set()):
+            if not running and (seen_vm or parent_exited.done()):
                 stopped.set()
                 return
             # A forwarded muvm command can exit while the original VM lives
@@ -210,8 +210,6 @@ async def watch_owner(
                 await asyncio.wait_for(stopped.wait(), timeout=0.5)
             except TimeoutError:
                 pass
-    finally:
-        loop.remove_reader(parent_fd)
 
 
 def remove_service(path: Path) -> None:

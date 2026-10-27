@@ -1,7 +1,7 @@
 """Load the shared RPC schema and its dynamically exported extension API"""
 
 from pathlib import Path
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 from functools import wraps
 from typing import Any
 import asyncio
@@ -47,12 +47,10 @@ async def connect(port: int, interface, *, timeout: float = 10):
             await asyncio.get_running_loop().sock_connect(
                 connection, (socket.VMADDR_CID_HOST, port)
             )
-            stream = await capnp.AsyncIoStream.create_connection(
-                sock=connection
-            )
-            client = capnp.TwoPartyClient(stream)
-            try:
+            with (
+                closing(
+                    await capnp.AsyncIoStream.create_connection(sock=connection)
+                ) as stream,
+                closing(capnp.TwoPartyClient(stream)) as client,
+            ):
                 yield client.bootstrap().cast_as(interface)
-            finally:
-                client.close()
-                stream.close()

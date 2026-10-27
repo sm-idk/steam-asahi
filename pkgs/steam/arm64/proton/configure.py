@@ -86,10 +86,6 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
         raise ConfigurationError(
             f"unable to read Steam configuration {config_path}: {error}"
         ) from error
-    if not isinstance(config, vdf.VDFDict):
-        raise ConfigurationError(
-            f"expected a VDF object at the root of {config_path}"
-        )
 
     # VDF leaves are strings; validate objects as we traverse the requested path
     mappings = config

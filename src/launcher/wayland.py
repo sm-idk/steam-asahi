@@ -30,6 +30,8 @@ lazy from services import (
 WAYLAND_PORT = 50197
 # Pressure Vessel preserves names beginning with wayland- when importing sockets
 WAYLAND_SOCKET_NAME = "wayland-steam-asahi"
+WAYPIPE_STARTUP_TIMEOUT = 10
+COMPOSITOR_POLL_INTERVAL = 2
 
 
 def find_wayland_display(environment: Mapping[str, str]) -> Path | None:
@@ -93,15 +95,10 @@ async def supervise_waypipe(
     async def watch_display() -> None:
         original = display.stat() if display is not None else None
         while True:
-            await asyncio.sleep(2)
+            await asyncio.sleep(COMPOSITOR_POLL_INTERVAL)
             try:
                 current = display.stat() if display is not None else None
-                if (
-                    original
-                    and current
-                    and (original.st_dev, original.st_ino)
-                    == (current.st_dev, current.st_ino)
-                ):
+                if original and current and os.path.samestat(original, current):
                     continue
             except OSError:
                 pass
@@ -125,7 +122,7 @@ async def supervise_waypipe(
             # This supervisor owns its process group. Keep Waypipe's connection
             # handlers and keeper in that group so shutdown reaches every child
             process = await asyncio.create_subprocess_exec(*arguments)
-            deadline = loop.time() + 10
+            deadline = loop.time() + WAYPIPE_STARTUP_TIMEOUT
             while not path.is_socket():
                 if process.returncode is not None or stopped.is_set():
                     raise OSError("Waypipe exited before creating its socket")

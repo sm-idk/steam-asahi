@@ -18,6 +18,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from anyio import wait_readable
 from jeepney import Message
 from jeepney.low_level import calc_msg_size
 
@@ -57,6 +58,7 @@ async def socket_ready(
     try:
         await ready
     finally:
+        # A closed socket's descriptor may already belong to another connection
         if connection.fileno() == descriptor:
             remove(descriptor)
 
@@ -84,33 +86,19 @@ async def wait_unix_disconnect(connection: socket.socket) -> None:
     A zero epoll mask reports HUP/ERR without requesting read or RDHUP events,
     so SHUT_WR does not repeatedly wake an already exhausted socket reader
     """
-    loop = asyncio.get_running_loop()
-    ready = loop.create_future()
     descriptor = connection.fileno()
     if descriptor < 0:
         raise ConnectionError("the caller socket is closed")
+    # Readiness cleanup completes before this scope releases the epoll FD
     with select.epoll() as events:
         events.register(descriptor, 0)
-
-        def disconnected() -> None:
-            if ready.done():
+        while True:
+            await wait_readable(events)
+            if any(
+                mask & (select.EPOLLHUP | select.EPOLLERR)
+                for _, mask in events.poll(0)
+            ):
                 return
-            try:
-                if any(
-                    mask & (select.EPOLLHUP | select.EPOLLERR)
-                    for _, mask in events.poll(0)
-                ):
-                    ready.set_result(None)
-            except OSError as error:
-                ready.set_exception(error)
-
-        try:
-            loop.add_reader(events.fileno(), disconnected)
-            await ready
-        finally:
-            loop.remove_reader(events.fileno())
-            with suppress(OSError):
-                events.unregister(descriptor)
 
 
 def receive_ancillary(

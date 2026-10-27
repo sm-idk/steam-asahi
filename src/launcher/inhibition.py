@@ -107,19 +107,15 @@ async def run_inhibited(
         if handle is None:
             return await process.wait()
 
-        async def warn_disconnect() -> int:
-            await disconnected.wait()
-            if process.returncode is None:
-                print(
-                    "WARNING: Host portal or session bus disconnected; game "
-                    "inhibition was released. Restart the game to reacquire "
-                    "inhibition",
-                    file=sys.stderr,
-                )
-            return await process.wait()
-
-        status, _ = await race((process.wait(), warn_disconnect()))
-        return status
+        await race((process.wait(), disconnected.wait()))
+        if process.returncode is None:
+            print(
+                "WARNING: Host portal or session bus disconnected; game "
+                "inhibition was released. Restart the game to reacquire "
+                "inhibition",
+                file=sys.stderr,
+            )
+        return await process.wait()
     finally:
         if process is not None and process.returncode is None:
             forward(signal.SIGTERM)
