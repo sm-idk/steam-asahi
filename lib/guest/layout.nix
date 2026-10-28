@@ -19,12 +19,12 @@ let
       directoryMode ? null,
     }:
     let
-      arguments = lib.escapeShellArgs (
-        lib.optional bind "--bind"
-        ++ lib.optional (options != [ ]) "--options=${lib.concatStringsSep "," options}"
-        ++ lib.optional (type != null) "--types=${type}"
-        ++ lib.optional (directoryMode != null) "--mkdir=${directoryMode}"
-      );
+      arguments = lib.cli.toCommandLineShellGNU { } {
+        inherit bind;
+        options = if options == [ ] then null else lib.concatStringsSep "," options;
+        types = type;
+        mkdir = directoryMode;
+      };
     in
     ''
       mount "''${MOUNT_BASE_ARGS[@]}" ${arguments} -- ${source} ${target} || return

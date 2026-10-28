@@ -121,7 +121,7 @@ let
       LSB_RELEASE = lib.meta.getExe lsb-release;
       LSOF = lib.meta.getExe lsof;
       LSPCI = lib.meta.getExe lspciShim;
-      NATIVE_RUNTIME = "${nativeRuntime}";
+      NATIVE_RUNTIME = toString (lib.getLib nativeRuntime);
       SH_BIN = "${lib.attrsets.getBin bash}/bin/sh";
       TASKSET = lib.meta.getExe' util-linux "taskset";
       TZDATA_ZONEINFO = "${tzdata}/share/zoneinfo";
@@ -143,7 +143,7 @@ let
     ];
     runtimeEnv = extraEnv;
     configuration = {
-      NATIVE_LIBRARY_PATH = "${nativeRuntime}/lib";
+      NATIVE_LIBRARY_PATH = lib.makeLibraryPath [ nativeRuntime ];
     };
   };
 
@@ -195,11 +195,11 @@ let
       CLIENT_UPDATE_CHANNEL = steam-arm64-client.updateChannel;
       COMPATIBILITY_TOOL_DIRECTORY = armProton.compatibilityToolDirectory;
       COMPATIBILITY_TOOL_VDF = "${compatibilityToolVdf}";
-      CUSTOM_STEAM_HOME_DIR = if customSteamHomeDir == null then "" else customSteamHomeDir;
+      CUSTOM_STEAM_HOME_DIR = lib.defaultTo "" customSteamHomeDir;
       DEFAULT_STEAM_HOME_DIR = "steam-asahi-arm64-home";
       DISPLAY_NAME = armProton.displayName;
       GUEST_LAUNCHER = lib.meta.getExe guestLauncher;
-      HOST_LIBRARIES = "${nativeRuntime}/lib";
+      HOST_LIBRARIES = lib.makeLibraryPath [ nativeRuntime ];
       INIT_SCRIPT = lib.meta.getExe initScript;
       MUVM = lib.meta.getExe muvm;
       PROTON_DIRECTORY = armProton.protonDirectory;

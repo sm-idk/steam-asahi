@@ -3,9 +3,7 @@
 let
   types = {
     cpuList = lib.types.nullOr (
-      lib.types.addCheck (lib.types.nonEmptyListOf lib.types.ints.u16) (
-        cpus: lib.lists.unique cpus == cpus
-      )
+      lib.types.addCheck (lib.types.nonEmptyListOf lib.types.ints.u16) lib.lists.allUnique
     );
     memoryMiB = lib.types.nullOr lib.types.ints.positive;
     vramMiB = lib.types.nullOr lib.types.ints.positive;
