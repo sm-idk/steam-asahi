@@ -1,19 +1,14 @@
 # Steam Asahi
 
-<!-- rumdl-disable MD033 -->
+Steam Asahi runs Steam on NixOS Asahi Linux. [4evy](https://github.com/4evy)
+did much of the work on the current implementation. She introduced the
+launcher, NixOS module, and desktop integration.
 
-<p align="center">
-  <strong>Steam on NixOS Asahi Linux, powered by a 4K-page microVM</strong>
-</p>
-
-<p align="center">
-  <img alt="NixOS Asahi" src="https://img.shields.io/badge/NixOS-Asahi-5277C3?style=flat-square&amp;logo=nixos&amp;logoColor=white">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-aarch64-111111?style=flat-square&amp;logo=apple&amp;logoColor=white">
-  <img alt="x86 FEX and ARM64 backends" src="https://img.shields.io/badge/backends-x86%2FFEX%20%7C%20ARM64-5C6BC0?style=flat-square">
-  <img alt="Experimental project" src="https://img.shields.io/badge/status-experimental-F59E0B?style=flat-square">
-</p>
-
-<!-- rumdl-enable MD033 -->
+Valve's binaries need 4K memory pages, but Linux on Apple Silicon uses 16K
+pages. The launcher uses a 4K-page
+[`muvm`](https://github.com/AsahiLinux/muvm) microVM with accelerated Asahi
+graphics. The default backend runs x86 Steam through FEX. The native ARM64
+Steam beta is available for testing.
 
 > [!WARNING]
 > This project is experimental and was developed with substantial LLM
@@ -21,26 +16,21 @@
 
 ![Steam running on NixOS Asahi Linux](https://github.com/user-attachments/assets/c8b4902b-3e69-43d7-8a21-29f91bb57f8f)
 
-_Screenshot courtesy of EliSaado from `#asahi-alt` on OFTC IRC._
-
-Steam requires **4K memory pages**, while Linux on Apple Silicon uses 16K
-pages. Steam Asahi bridges that gap with a 4K-page
-[`muvm`](https://github.com/AsahiLinux/muvm) microVM with accelerated Asahi
-graphics. It runs the standard x86 Steam client through FEX by default, with
-an experimental native ARM64 backend available for testing.
+_Screenshot by EliSaado from `#asahi-alt` on OFTC IRC._
 
 ## Requirements
 
-- **System:** NixOS on Apple Silicon
-- **Virtualization:** access to `/dev/kvm`
-- **Graphics:** a working Asahi graphics stack
-- **Audio:** PipeWire with PulseAudio compatibility, or PulseAudio
+- NixOS on Apple Silicon (`aarch64-linux`) with working Asahi graphics
+- Access to `/dev/kvm`, normally through membership in the `kvm` group
+- PipeWire with PulseAudio compatibility, or PulseAudio
 
-## Quick start
+> [!IMPORTANT]
+> Disable `programs.steam` and `hardware.graphics.enable32Bit`. Both conflict
+> with this module, which provides its own client and uses 64-bit host graphics.
 
-### 1. Add the module
+## Install and launch
 
-Add the flake input and module alongside your existing NixOS configuration:
+Add the flake input and import the module in your existing NixOS configuration:
 
 ```nix
 {
@@ -60,10 +50,8 @@ Add the flake input and module alongside your existing NixOS configuration:
 }
 ```
 
-Let `hardware-configuration.nix` or NixOS Facter set `nixpkgs.hostPlatform` for
-the machine; do not repeat it in the flake.
-
-Then enable Steam Asahi in `configuration.nix`:
+In `configuration.nix`, allow the unfree packages, enable Steam Asahi, and add
+your user to the `kvm` group:
 
 ```nix
 {
@@ -75,171 +63,144 @@ Then enable Steam Asahi in `configuration.nix`:
   ];
 
   programs.steam-asahi.enable = true;
-
   users.users."«username»".extraGroups = [ "kvm" ];
 }
 ```
 
-### 2. Rebuild
-
-Replace `«hostname»` and `«username»`, then apply the configuration:
+Replace `«hostname»` and `«username»`, then rebuild:
 
 ```console
 sudo nixos-rebuild switch --flake .#«hostname»
 ```
 
-### 3. Launch
+Log out and back in if you added yourself to `kvm`. Then open **Steam Asahi**
+from the application launcher, or run `steam-asahi` in your host shell.
+Don't run it as root.
 
-Open **Steam Asahi** from the application launcher, or run:
-
-```console
-steam-asahi
-```
-
-Run `steam-asahi` directly from the host shell. The first x86 launch downloads
-an approximately 1.3 GiB Fedora 44 FEX root filesystem.
-
-> [!IMPORTANT]
-> Do not enable `programs.steam` or `hardware.graphics.enable32Bit`. The
-> module replaces that setup and reports either option as a conflict.
-
-If the host already meets the graphics, KVM, and audio requirements, try the
-project from a checkout before adding the module:
-
-```console
-nix develop
-steam-asahi
-```
-
-The development shell provides the launchers but does not apply the module's
-NixOS configuration.
+The first x86 launch downloads a Fedora 44 FEX root filesystem (about 1.3 GB).
+The module sets up host graphics and controller rules, but you'll need to
+configure your audio server separately.
 
 ## Configuration
 
-The x86/FEX backend is the recommended default. Common optional settings are:
+All settings below go under `programs.steam-asahi`:
+
+| Option               | Default          | Purpose                                                                 |
+| -------------------- | ---------------- | ----------------------------------------------------------------------- |
+| `backend`            | `"x86-fex"`      | Select x86/FEX or experimental `"arm64"`                                |
+| `cpuList`            | `null`           | Host CPU IDs, one guest vCPU per ID. Defaults to performance cores      |
+| `memoryMiB`          | `null`           | VM memory ceiling. Defaults to 80% of host RAM, allocated on demand     |
+| `vramMiB`            | `null`           | Reported GPU heap size. Defaults to half of host RAM, not a reservation |
+| `extraEnv`           | Backend defaults | Override guest environment variables. Use `null` to remove a variable   |
+| `nativeWayland`      | `true`           | Expose a guest Wayland display through Waypipe                          |
+| `customSteamHomeDir` | `null`           | Override the isolated ARM64 home directory                              |
+
+On an 8 GiB machine, for example, leave some memory for the host:
 
 ```nix
-programs.steam-asahi = {
-  backend = "x86-fex"; # or the experimental "arm64" backend
-  cpuList = null;      # null lets muvm select performance cores
-  memoryMiB = 6144;    # useful on an 8 GiB machine
-  vramMiB = 4096;      # GPU heap size reported inside the guest
-};
+programs.steam-asahi.memoryMiB = 6144;
 ```
 
-Steam, Proton, and FEX are memory-heavy. Consider swap or zswap on machines
-with less RAM.
+Swap or zswap can help if you're short on memory. For CPU tuning, check host
+IDs with `lscpu -e=CPU,MAXMHZ` before setting `cpuList`. Adding efficiency cores
+can help threaded workloads but hurt frame pacing, so compare results per game.
 
-| Option                                       | Purpose                                                |
-| -------------------------------------------- | ------------------------------------------------------ |
-| `backend`                                    | Select `"x86-fex"` (default) or experimental `"arm64"` |
-| `customSteamHomeDir`                         | Set the isolated ARM64 home directory                  |
-| `cpuList`                                    | Select host CPUs and the guest vCPU count              |
-| `memoryMiB`                                  | Limit the microVM's memory in MiB                      |
-| `vramMiB`                                    | Set the GPU heap size reported inside the guest        |
-| `extraEnv`                                   | Add or replace guest environment variables             |
-| `remotePlay.openFirewall`                    | Enable Remote Play ports                               |
-| `dedicatedServer.openFirewall`               | Enable Source server ports                             |
-| `localNetworkGameTransfers.openFirewall`     | Enable local transfer ports                            |
+To enable Remote Play, Source Dedicated Server, or local game transfers, set
+the matching option to `true`: `remotePlay.openFirewall`,
+`dedicatedServer.openFirewall`, or `localNetworkGameTransfers.openFirewall`.
+Each opens the host firewall and forwards the guest ports through muvm/passt.
+All three are off by default.
 
-The firewall options both open the NixOS host firewall and publish the same
-ports from the `muvm` guest through passt. They are disabled by default. Values
-in `extraEnv` merge with the selected backend's defaults; set a defaulted
-variable to `null` to remove it.
+The [module options](nixos/modules/steam.nix) describe the remaining settings
+and their defaults.
 
-By default, muvm creates one guest vCPU per performance core and pins the whole
-VM to those cores. Guest CPU numbers start again at zero and do not identify
-host efficiency cores. To experiment with all cores, inspect host IDs with
-`lscpu -e=CPU,MAXMHZ` and set `cpuList`, for example `[ 0 1 2 3 4 5 6 7 ]` on
-a base M1 or M2. Extra efficiency cores can help heavily threaded workloads,
-but the guest is unaware of the asymmetric core types, so they can also hurt
-frame pacing. Benchmark the default and the all-core configuration per game.
+### Per-game Wayland
 
-## Backends
+Steam uses XWayland. To let a game use the guest Wayland display, set its Steam
+launch options to:
 
-|                 | x86/FEX             | Native ARM64 beta                        |
-| --------------- | ------------------- | ---------------------------------------- |
-| Steam client    | Standard x86 client | Valve public beta                        |
-| Recommended     | Yes                 | Testing only                             |
-| Windows games   | Standard Proton     | Proton 11.0 (ARM64)                      |
-| x86 Linux games | FEX                 | Use the Windows build through ARM Proton |
+```text
+steam-asahi-game --wayland -- %command%
+```
 
-### Native ARM64 backend
+Use `--xwayland` instead to select XWayland. This only selects the display.
+It doesn't enable Proton's Wine Wayland driver or guarantee that a game works
+with Wayland.
 
-The experimental ARM64 beta uses separate Steam state under
-`$XDG_DATA_HOME/steam-asahi-arm64-home` (normally
-`~/.local/share/steam-asahi-arm64-home`). Do not add the x86 Steam library to
-the ARM64 client because the backends must not share mutable `compatdata`.
+## Experimental ARM64 backend
 
-If you already have an authenticated x86 installation, exit Steam, switch the
-module backend to `"arm64"`, rebuild, and import a copy of the login state:
+Set `programs.steam-asahi.backend = "arm64"` and rebuild to use Valve's native
+ARM64 public beta. It still needs the 4K-page microVM.
+
+This backend keeps its state in `$XDG_DATA_HOME/steam-asahi-arm64-home`
+(normally `~/.local/share/steam-asahi-arm64-home`). **Don't add your x86 Steam
+library to this client.** The two backends must not share mutable `compatdata`.
+Use `customSteamHomeDir` if you want a different ARM64 home.
+
+If you're already logged in to x86 Steam, close Steam and copy the login state:
 
 ```console
 steam-asahi --import-login
 ```
 
 For Windows games, install **Proton 11.0 (ARM64)** and **Steam Linux Runtime
-4.0 - Arm64**. The launcher then registers **Proton 11.0 (ARM64) [Steam
-Asahi]**, a compatibility-tool wrapper around those Valve-managed payloads.
-Choose the Steam Asahi entry rather than Valve's unwrapped Proton entry so the
-NixOS libraries and corrected compatibility paths are available. Force games
-with x86-only Linux builds to use the wrapper so Steam downloads their Windows
-build. Close Steam, then configure and launch the game with its numeric AppID:
+4.0 - Arm64** in Steam. The launcher registers **Proton 11.0 (ARM64) [Steam
+Asahi]**, a wrapper that supplies the NixOS libraries and compatibility paths
+games need. Choose this wrapper rather than Valve's unwrapped Proton entry.
+
+Games with x86-only Linux builds need the Windows build through this wrapper.
+Close Steam, then run this with the game's numeric AppID to set the
+compatibility tool and launch the game:
 
 ```console
 steam-asahi --force-proton APPID
 ```
 
-The launcher creates a one-time `config.vdf.steam-asahi-backup` before changing
-the game's compatibility mapping.
+Before changing a compatibility mapping, the launcher makes a one-time backup
+of `config.vdf` as `config.vdf.steam-asahi-backup`.
 
 ## Troubleshooting
 
-- **Waiting for network on a fresh login:** this is a current Steam client
-  regression, not failed guest networking, and it can affect both backends.
-  Follow [project issue #6] and [Valve issue #13493] for status and the tested
-  temporary login procedure.
-- **No audio:** verify that
+- **Waiting for network at login:** a known Steam client regression can affect
+  both backends. See [project issue #6] and [Valve issue #13493] for status and
+  the tested temporary login procedure.
+- **No audio:** check that
   `${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native` exists, then restart
   Steam Asahi.
-- **A game exits immediately on ARM64:** ignore `gameoverlayrenderer.so` preload
-  warnings, then check whether the game needs to be forced to Proton. The
-  compatibility tool writes details to `steam-asahi-proton.log` in its
-  directory below `Steam/compatibilitytools.d`.
-- **Inspect the guest:** run `steam-asahi --fex 'uname -m'` or
-  `steam-asahi --fex 'vulkaninfo --summary'`.
-
-Set `STEAM_ASAHI_NO_SPLASH=1` to disable the startup dialog.
+- **ARM64 game exits immediately:** check whether it needs to be forced to
+  Proton. Look for the wrapper's `steam-asahi-proton.log` in its directory
+  under `Steam/compatibilitytools.d`.
+- **Desktop integration problems:** run `steam-asahi --desktop-diagnostics`
+  for host and guest reports, or add `--host-only` to check only the host.
+- **Inspect the guest:** on x86/FEX, run
+  `steam-asahi --fex 'vulkaninfo --summary'`. On ARM64, run
+  `steam-asahi --guest uname -m` or `steam-asahi --guest getconf PAGESIZE`.
+- **Disable the startup dialog:** set `STEAM_ASAHI_NO_SPLASH=1` when launching.
 
 ## Development
 
-Format and verify the current host with:
+On an Apple Silicon host that meets the requirements, run `nix develop` from a
+checkout to try the launchers without installing the module. The shell provides
+`steam-asahi` (x86/FEX), `steam-asahi-arm64`, and `steam-asahi-arm64-test`.
+The test launcher uses a separate ARM64 home. The shell doesn't apply the
+module's system configuration.
+
+Format and check the code with:
 
 ```console
 nix fmt
 nix flake check -L
 ```
 
-Evaluate outputs for both supported check platforms without building them:
+To evaluate both `aarch64-linux` and `x86_64-linux` outputs without building:
 
 ```console
 nix flake check --all-systems --no-build -L
 ```
 
-The checks cover package layouts, NixOS module evaluation, launch argument
-handling, ShellCheck, and source formatting. They do not boot a NixOS VM or
-verify an interactive desktop session. Native Asahi gameplay and desktop
-integration still need runtime validation on Apple Silicon.
-
-## Thanks
-
-Huge thanks to [4evy](https://github.com/4evy). She introduced the shell
-launcher, NixOS module, and desktop integration and did much of the work on
-the current implementation.
-
-Thanks also to [ooonea's fork](https://codeberg.org/ooonea/steam-asahi) for
-reviving the project and validating many of its fixes. The underlying `muvm`,
-`libkrun`, and Asahi graphics fixes are upstream in nixpkgs.
+Checks cover package layouts, module evaluation, launcher behavior, ShellCheck,
+and source formatting. They don't boot a VM or test games or desktop
+integration. Those still need testing on Apple Silicon.
 
 [project issue #6]: https://github.com/sm-idk/steam-asahi/issues/6
 [Valve issue #13493]: https://github.com/ValveSoftware/steam-for-linux/issues/13493
