@@ -9,11 +9,11 @@
 
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "steam-x86_64-client";
-  version = "1792192922";
+  version = "1793056502";
 
   src = fetchurl {
-    url = "https://client-update.fastly.steamstatic.com/steam_steamrt_steamrt64.zip.29d06f501c2e8dd364c337b84ecd24a84dd951bd";
-    hash = "sha256-AHtNbuR23FwiFQQMjZOW5csn1cvLkUQDdKliezwmqJ8=";
+    url = "https://client-update.fastly.steamstatic.com/steam_steamrt_steamrt64.zip.6cec8c15929115db9c1499e0dac503288b8456e4";
+    hash = "sha256-p+lyj4ojW/eXeg6Mi1wkLvzZF4m595vfL0RrOaE0tK4=";
   };
 
   nativeBuildInputs = [ unzip ];
