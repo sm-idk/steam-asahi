@@ -103,7 +103,7 @@ async def relay_descriptor_bus(
     registry=None,
     helper: Path | None = None,
 ) -> None:
-    from portal.descriptor_relay import DescriptorRelay
+    from portal.descriptors.relay import DescriptorRelay
     from portal.descriptors import UnixMessageSocket
     from resources import Namespace
 
@@ -411,7 +411,7 @@ def initialize_guest_bus() -> None:
     role = "guest-bus"
     arguments = []
     if os.environ.get("STEAM_ASAHI_PORTAL_RESOURCES") == "1":
-        from resource_transport import check_guest_resources
+        from resources.transport import check_guest_resources
 
         try:
             helper = os.environ.get("STEAM_ASAHI_PIPEWIRE_BRIDGE")

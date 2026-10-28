@@ -19,7 +19,7 @@ upstream.override (previous: {
       # Jedi's grammar discovery covers Python through 3.14
       jedi = pythonPrev.jedi.overridePythonAttrs (old: {
         nativeCheckInputs = (old.nativeCheckInputs or [ ]) ++ [ python314 ];
-        patches = (old.patches or [ ]) ++ [ ./jedi-python315.patch ];
+        patches = (old.patches or [ ]) ++ [ ./jedi/python315.patch ];
         # Trust the running interpreter and its virtualenv copies
         postPatch = (old.postPatch or "") + ''
           substituteInPlace jedi/api/environment.py \

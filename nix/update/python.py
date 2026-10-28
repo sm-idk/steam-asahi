@@ -27,7 +27,7 @@ python_minor = metadata["pythonMinor"]
 def nix_version(name):
     if name not in versions:
         raise ValueError(
-            f"{name}: add its Nix package to nix/update-python-deps.nix"
+            f"{name}: add its Nix package to nix/update/python.nix"
         )
     return versions[name]
 

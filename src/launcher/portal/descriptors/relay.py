@@ -21,7 +21,7 @@ from jeepney import (
 )
 from jeepney.bus_messages import message_bus
 
-from .descriptors import (
+from . import (
     IO_TIMEOUT,
     ZERO_TOKEN,
     PipeWireHelper,
@@ -30,14 +30,14 @@ from .descriptors import (
     UnixMessageSocket,
     wait_unix_disconnect,
 )
-from .portal import (
+from ..portal import (
     MessageStream,
     decode_message,
     descriptor_operation,
     relay_portal_messages,
 )
-from .protocol import MAX_MESSAGE_BYTES, MAX_REQUESTS, PORTAL, SESSION, matches
-from .rpc import RPC, capnp, scoped
+from ..protocol import MAX_MESSAGE_BYTES, MAX_REQUESTS, PORTAL, SESSION, matches
+from ..rpc import RPC, capnp, scoped
 
 if TYPE_CHECKING:
     from resources import Namespace

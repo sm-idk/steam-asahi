@@ -58,6 +58,6 @@ writeShellApplication {
     uv
   ];
   text = ''
-    exec ${lib.getExe python} ${./update-python-deps.py} ${metadata} "$@"
+    exec ${lib.getExe python} ${./python.py} ${metadata} "$@"
   '';
 }

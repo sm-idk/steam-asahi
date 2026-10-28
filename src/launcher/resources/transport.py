@@ -10,7 +10,7 @@ CHECK_TIMEOUT = 5
 
 
 def check_guest_resources(helper: Path) -> bool:
-    from resources import HOST_IDENTITY, HOST_IDENTITY_XATTR
+    from . import HOST_IDENTITY, HOST_IDENTITY_XATTR
 
     if (
         not helper.is_absolute()

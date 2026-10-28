@@ -22,8 +22,8 @@ from anyio import wait_readable
 from jeepney import Message
 from jeepney.low_level import calc_msg_size
 
-from .portal import decode_message
-from .protocol import MAX_MESSAGE_BYTES
+from ..portal import decode_message
+from ..protocol import MAX_MESSAGE_BYTES
 
 MAX_DESCRIPTORS = 16
 MAX_KERNEL_DESCRIPTORS = 253

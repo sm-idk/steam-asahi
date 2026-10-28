@@ -36,8 +36,8 @@
         {
           inherit (pkgs) steam-x86_64-client steam-arm64-client;
           renovate = pkgs.callPackage ./nix/renovate.nix { };
-          update-steam-clients = pkgs.callPackage ./nix/update-steam-clients.nix { };
-          update-python-deps = pkgs.callPackage ./nix/update-python-deps.nix { };
+          update-steam-clients = pkgs.callPackage ./nix/update/steam.nix { };
+          update-python-deps = pkgs.callPackage ./nix/update/python.nix { };
           steam-asahi-options = pkgs.callPackage ./nix/options.nix {
             inherit nixpkgs;
             module = self.nixosModules.default;
