@@ -15,7 +15,6 @@ in
     root = ../.;
     fileset = lib.fileset.unions [
       launcherFiles
-      ../tests/shell/launcher/imports.py
       ../tests/shell/launcher/run.py
     ];
   };

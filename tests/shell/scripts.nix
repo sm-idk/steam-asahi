@@ -191,10 +191,6 @@ writeShellApplication {
           || fail 'glibc command was not linked'
       )
 
-      python3.15 -I -B \
-        "''${REPOSITORY_ROOT}/tests/shell/launcher/imports.py" \
-        "''${REPOSITORY_ROOT}/src/launcher"
-
       (
         # shellcheck source=/dev/null
         source ${lspciSource}
