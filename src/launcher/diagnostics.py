@@ -16,6 +16,9 @@ from collections.abc import Mapping
 from contextlib import redirect_stdout
 from pathlib import Path
 
+# Resolve adjacent modules before top-level lazy imports are first used
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 lazy from environment import runtime_directory, xdg_home
 lazy from portal.protocol import DESCRIPTOR_METHODS, DESKTOP_SERVICES
 lazy from resources import HOST_ROOT
@@ -382,5 +385,4 @@ def launch_diagnostics(
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
