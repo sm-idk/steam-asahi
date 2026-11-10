@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import NoReturn
 
 from common import (
@@ -40,7 +41,7 @@ PROTON_MANAGED_FILES = (
     ("steam-asahi-proton", "PROTON_WRAPPER", 0o755),
     ("toolmanifest.vdf", "TOOL_MANIFEST", 0o644),
 )
-LOCKED_COMMAND_ERRORS = frozendict(
+LOCKED_COMMAND_ERRORS = MappingProxyType(
     {
         "--force-proton": (
             "Close Steam before changing a compatibility-tool mapping"

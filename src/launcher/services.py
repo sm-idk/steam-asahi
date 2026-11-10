@@ -19,9 +19,8 @@ from pathlib import Path
 
 import msgspec
 
-lazy import psutil
-lazy from aiotools import TaskContext
-lazy from anyio import wait_readable
+from aiotools import TaskContext
+from anyio import wait_readable
 
 DESKTOP_IDENTITY_VARIABLES = (
     "HOME",
@@ -57,9 +56,9 @@ def service_status(path: Path) -> dict[str, object]:
 
 @contextmanager
 def service_lock(path: Path, identity: str):
-    path.parent.mkdir(
-        mode=0o700, parents=True, parent_mode=0o700, exist_ok=True
-    )
+    for parent in reversed(path.parent.parents):
+        parent.mkdir(mode=0o700, exist_ok=True)
+    path.parent.mkdir(mode=0o700, exist_ok=True)
     # Keep this inode after shutdown: unlinking locks lets two launchers
     # lock different inodes for the same port while muvm's allocator is using it
     with path.with_suffix(".lock").open("a+b") as lock:
@@ -218,6 +217,8 @@ def remove_service(path: Path) -> None:
 
 
 def group_members(group: int) -> list[int]:
+    import psutil
+
     members = []
     for process in psutil.process_iter():
         if process.pid == os.getpid():

@@ -6,9 +6,12 @@
 }:
 let
   scripts = pkgs.callPackage ../lib/guest/scripts.nix { };
+  python3 = (pkgs.callPackage ../lib/guest/desktop.nix { }).python;
   diagnostic = scripts.renderSource "test-fex-diagnostic.sh" ../pkgs/steam/fex/guest/diagnostic.nix;
   steam = scripts.renderSource "test-fex-steam.sh" ../pkgs/steam/fex/guest/steam.nix;
-  shellTests = pkgs.callPackage ./shell/scripts.nix { inherit scriptTestSources; };
+  shellTests = pkgs.callPackage ./shell/scripts.nix {
+    inherit scriptTestSources python3;
+  };
   shellScripts =
     pkgs.runCommand "steam-asahi-shell-scripts-test"
       {
@@ -18,10 +21,7 @@ let
             coreutils
             util-linux
             ;
-          python315 = pkgs.python315.withPackages (packages: [
-            packages.boltons
-            packages.msgspec
-          ]);
+          inherit python3;
         };
       }
       ''

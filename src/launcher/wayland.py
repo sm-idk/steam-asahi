@@ -11,12 +11,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from contextlib import aclosing
 
-lazy from aiotools import TaskContext, race
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from environment import runtime_directory
+from aiotools import TaskContext, race
 
-lazy from transport import channel_path
-lazy from services import (
+from environment import runtime_directory
+
+from transport import channel_path
+from services import (
     control_server,
     READY_MESSAGE,
     remove_service,
@@ -206,7 +209,6 @@ def initialize_guest_wayland(waypipe: str, keeper: str) -> None:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     with (
         os.fdopen(int(sys.argv[3]), "ab"),
         os.fdopen(int(sys.argv[1]), "rb"),

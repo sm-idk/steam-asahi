@@ -9,7 +9,6 @@
   writeShellApplication,
   replaceVars,
   python3,
-  python315,
   waypipe,
   steam-arm64-client,
   steam-unwrapped,
@@ -70,7 +69,7 @@ let
   desktop = callPackage ../../../lib/guest/desktop.nix {
     inherit
       muvm
-      python315
+      python3
       waypipe
       nativeWayland
       portalResources

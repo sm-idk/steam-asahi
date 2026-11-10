@@ -23,15 +23,15 @@ if __name__ == "__main__":
 from aiotools import TaskScope
 from portal.rpc import RPC, capnp, connect, scoped
 
-lazy from tenacity import (
+from tenacity import (
     AsyncRetrying,
     retry_if_exception,
     stop_before_delay,
     wait_fixed,
 )
 
-lazy from transport import OPEN_PORT, channel_path, start_listener
-lazy from resources import (
+from transport import OPEN_PORT, channel_path, start_listener
+from resources import (
     MAX_ICON_BYTES,
     MAX_RESOURCE_REQUEST_BYTES,
     IconStore,

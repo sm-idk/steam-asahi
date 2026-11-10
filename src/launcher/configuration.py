@@ -1,6 +1,7 @@
 """Validate Nix's JSON at the boundary before preparing launcher state"""
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Literal, NotRequired, TypedDict, cast
 
 import msgspec
@@ -66,7 +67,7 @@ class FexConfiguration(LauncherConfiguration):
 
 type Configuration = Arm64Configuration | FexConfiguration
 
-BACKEND_SCHEMAS = frozendict(
+BACKEND_SCHEMAS = MappingProxyType(
     {"arm64": Arm64Configuration, "x86-fex": FexConfiguration}
 )
 

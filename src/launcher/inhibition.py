@@ -14,10 +14,14 @@ from aiotools import race
 
 from portal.protocol import PORTAL
 
-# GObject namespaces are loaded from the packaged typelibs at runtime
-lazy from gi.repository import Gio, GLib, Xdp  # ty: ignore[unresolved-import]
-
 gi.require_version("Xdp", "1.0")
+
+# Select the typelib version before importing its repository namespace
+from gi.repository import (  # noqa: E402  # ty: ignore[unresolved-import]
+    Gio,
+    GLib,
+    Xdp,
+)
 
 PORTAL_CLOSE_TIMEOUT = 2
 FORWARDED_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)

@@ -18,14 +18,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 from uuid import uuid4
 
-lazy from environment import runtime_directory
+if __name__ == "__main__":
+    # The isolated splash helper needs the adjacent launcher modules
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from boltons.fileutils import atomic_save
-lazy from desktop import start_host_opener
-lazy from resources import HOST_ROOT
-lazy from services import vm_running
-lazy from session import BUS_SOCKET_NAME, find_session_bus, start_host_bus
-lazy from wayland import (
+from environment import runtime_directory
+
+from boltons.fileutils import atomic_save
+from resources import HOST_ROOT
+from services import vm_running
+from session import BUS_SOCKET_NAME, find_session_bus, start_host_bus
+from wayland import (
     WAYLAND_SOCKET_NAME,
     find_wayland_display,
     start_host_wayland,
@@ -195,7 +198,11 @@ def muvm_arguments(
         "--execute-pre",
         configuration["INIT_SCRIPT"],
         *(["--interactive"] if interactive else []),
-        *[*("-e", f"{name}={value}") for name, value in environment.items()],
+        *(
+            argument
+            for name, value in environment.items()
+            for argument in ("-e", f"{name}={value}")
+        ),
     ]
 
 
@@ -256,9 +263,9 @@ def exec_guest(
         ).encode()
         instance = hashlib.sha256(identity).hexdigest()[:16]
         directory = Path(runtime) / "steam-asahi" / instance
-        directory.mkdir(
-            mode=0o700, parents=True, parent_mode=0o700, exist_ok=True
-        )
+        for parent in reversed(directory.parents):
+            parent.mkdir(mode=0o700, exist_ok=True)
+        directory.mkdir(mode=0o700, exist_ok=True)
         # Upstream muvm uses XDG_RUNTIME_DIR for its locks and control
         # sockets muvm uses this host-side alias to discover the audio socket
         replace_symlink(Path(runtime) / "pulse", directory / "pulse")
@@ -282,6 +289,8 @@ def exec_guest(
                 "configuration; close Steam before using this launcher"
             )
     if opener := configuration.get("HOST_OPEN"):
+        from desktop import start_host_opener
+
         if not environment.get("XDG_RUNTIME_DIR"):
             raise LauncherError("desktop integration requires XDG_RUNTIME_DIR")
         start_host_opener(
@@ -351,10 +360,11 @@ def exec_guest(
             arguments[0],
             "--user-execute-pre",
             str(guest_session),
-            *[
-                *("-e", f"{name}={value}")
+            *(
+                argument
                 for name, value in guest_environment.items()
-            ],
+                for argument in ("-e", f"{name}={value}")
+            ),
             # Explicit per-backend environment arguments retain precedence
             *arguments[1:],
         ]

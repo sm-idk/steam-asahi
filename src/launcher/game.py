@@ -9,9 +9,6 @@ import os
 import sys
 from pathlib import Path
 
-lazy from wayland import WAYLAND_SOCKET_NAME
-lazy from common import exit_status
-
 PROTON_METADATA_FILES = ("version", "toolmanifest.vdf")
 MAX_METADATA_CHARACTERS = 8192
 
@@ -84,6 +81,8 @@ def main() -> int:
         parser.error("--display requires --wayland")
     environment = os.environ.copy()
     if arguments.wayland:
+        from wayland import WAYLAND_SOCKET_NAME
+
         display = arguments.display or environment.get(
             "STEAM_ASAHI_WAYLAND_DISPLAY", WAYLAND_SOCKET_NAME
         )
@@ -106,6 +105,7 @@ def main() -> int:
         environment.pop("WAYLAND_DISPLAY", None)
         environment.pop("WAYLAND_SOCKET", None)
     if arguments.inhibit:
+        from common import exit_status
         from gi.events import GLibEventLoop
 
         from inhibition import run_inhibited
@@ -122,6 +122,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Resolve optional launcher modules before entering isolated startup
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         raise SystemExit(main())

@@ -1,7 +1,6 @@
 {
   lib,
   python3,
-  python315,
   ruff,
   ty,
   uv,
@@ -12,7 +11,7 @@
 let
   # These are distribution names, not necessarily Nix attribute names
   packages = {
-    inherit (python315.pkgs)
+    inherit (python3.pkgs)
       aiotools
       anyio
       async-lru
@@ -30,16 +29,15 @@ let
       typing-extensions
       vdf
       ;
-    pygobject = python315.pkgs.pygobject3;
+    pygobject = python3.pkgs.pygobject3;
     inherit ruff ty;
   };
   metadata = writeText "python-dependency-versions.json" (
     builtins.toJSON {
       versions = lib.mapAttrs (_: package: package.version) packages;
-      python = lib.getExe python315;
-      pythonVersion = python315.version;
-      pythonMinor = lib.versions.majorMinor python315.version;
-      scriptPythonMinor = lib.versions.majorMinor python3.version;
+      python = lib.getExe python3;
+      pythonVersion = python3.version;
+      pythonMinor = lib.versions.majorMinor python3.version;
       # Tenacity is Git-sourced because Nix's tag is not available on PyPI
       gitSources.tenacity = {
         git = packages.tenacity.src.gitRepoUrl;
@@ -47,7 +45,6 @@ let
       };
     }
   );
-  # The updater itself does not need the launcher's Python 3.15 interpreter
   python = python3.withPackages (ps: [
     ps.packaging
     ps.tomlkit

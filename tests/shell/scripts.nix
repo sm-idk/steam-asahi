@@ -5,7 +5,7 @@
   util-linux,
   gnugrep,
   findutils,
-  python315,
+  python3,
   runCommand,
   writeShellApplication,
   callPackage,
@@ -66,10 +66,7 @@ writeShellApplication {
     util-linux
     gnugrep
     findutils
-    (python315.withPackages (packages: [
-      packages.boltons
-      packages.msgspec
-    ]))
+    python3
   ];
   text = ''
     # shellcheck shell=bash
@@ -503,7 +500,7 @@ writeShellApplication {
           TOOL_MANIFEST="''${launcher_root}/toolmanifest.vdf" \
           XDG_DATA_HOME="''${home}/data" \
           YAD="''${launcher_root}/yad" \
-          python3.15 -I -B \
+          python3 -I -B \
             "''${REPOSITORY_ROOT}/tests/shell/launcher/run.py" \
             "''${REPOSITORY_ROOT}" "$@"
       }

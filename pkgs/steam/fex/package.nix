@@ -13,7 +13,7 @@
   fuse,
   fuse3,
   bash,
-  python315,
+  python3,
   waypipe,
   coreutils,
   util-linux,
@@ -51,7 +51,7 @@ let
   desktop = callPackage ../../../lib/guest/desktop.nix {
     inherit
       muvm
-      python315
+      python3
       waypipe
       nativeWayland
       portalResources

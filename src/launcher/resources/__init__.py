@@ -16,15 +16,15 @@ import tempfile
 import warnings
 from contextlib import ExitStack, suppress
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import msgspec
 
-lazy from boltons.fileutils import atomic_save
+from boltons.fileutils import atomic_save
 
-lazy import psutil
-lazy from PIL import Image
+if TYPE_CHECKING:
+    from PIL import Image
 
 HOST_ROOT = Path("/run/muvm-host")
 MAX_RESOURCE_REQUEST_BYTES = 2 * 1024 * 1024
@@ -212,6 +212,8 @@ class IconStore:
         self.directory.cleanup()
 
     def put(self, data: bytes) -> str:
+        from PIL import Image
+
         if not 24 <= len(data) <= MAX_ICON_BYTES:
             raise ValueError("notification icon exceeds the byte limit")
         try:
@@ -412,6 +414,8 @@ class Namespace:
         return result
 
     def host_path_for_fd(self, descriptor: int) -> Path:
+        import psutil
+
         from desktop import read_mounts, shared_mount_roots
 
         self.ensure_alive()
@@ -524,6 +528,8 @@ class Namespace:
         }
 
     def _notification_image(self, target: str | Path) -> Image.Image:
+        from PIL import Image
+
         target = os.fspath(target)
         path = (
             local_file_uri(target)[0]

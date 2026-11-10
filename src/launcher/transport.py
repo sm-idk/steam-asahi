@@ -13,11 +13,15 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-lazy from aiotools import TaskContext, TaskScope, race
-lazy from anyio import BrokenResourceError, ClosedResourceError
-lazy from anyio.abc import ByteStream
+if __name__ == "__main__":
+    # Isolated Python excludes the script directory from its import path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from services import (
+from aiotools import TaskContext, TaskScope, race
+from anyio import BrokenResourceError, ClosedResourceError
+from anyio.abc import ByteStream
+
+from services import (
     control_server,
     READY_MESSAGE,
     remove_service,
@@ -241,8 +245,6 @@ async def serve(
 
 
 if __name__ == "__main__":
-    # Isolated Python excludes the script directory from its import path
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     socket_path = Path(sys.argv[5])
     with (
         socket.socket(fileno=int(sys.argv[3])) as service_listener,

@@ -9,6 +9,7 @@ import sys
 from dataclasses import dataclass, field
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import MappingProxyType
 from uuid import uuid4
 
 from boltons.cacheutils import LRI
@@ -26,7 +27,7 @@ from .protocol import (
 from resources import Namespace, local_file_uri
 
 NO_REPLY_EXPECTED = int(MessageFlag.no_reply_expected)
-CHOOSER_MODES = frozendict(
+CHOOSER_MODES = MappingProxyType(
     {"OpenFile": "read", "SaveFile": "save", "SaveFiles": "save"}
 )
 

@@ -2,7 +2,7 @@
   lib,
   writeShellApplication,
   writeText,
-  python315,
+  python3,
   libportal,
   muvm,
   waypipe,
@@ -17,7 +17,7 @@
 }:
 let
   source = (import ../../nix/sources.nix { inherit lib; }).launcher;
-  python = python315.withPackages (packages: [
+  python = python3.withPackages (packages: [
     packages.aiotools
     packages.anyio
     packages.boltons

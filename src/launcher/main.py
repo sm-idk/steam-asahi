@@ -12,10 +12,10 @@ from pathlib import Path
 # Import only the adjacent pinned modules, even with Python's isolated mode
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from arm64 import Arm64Launcher  # noqa: E402
+from arm64 import Arm64Launcher  # noqa: E402
 from common import LauncherError, exit_status  # noqa: E402
 from configuration import load_configuration  # noqa: E402
-lazy from fex import FexLauncher  # noqa: E402
+from fex import FexLauncher  # noqa: E402
 
 
 def main() -> int:

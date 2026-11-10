@@ -16,15 +16,15 @@ from collections.abc import Mapping
 from contextlib import redirect_stdout
 from pathlib import Path
 
-# Resolve adjacent modules before top-level lazy imports are first used
+# Resolve adjacent modules before importing launcher helpers in isolated mode
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from environment import runtime_directory, xdg_home
-lazy from portal.protocol import DESCRIPTOR_METHODS, DESKTOP_SERVICES
-lazy from resources import HOST_ROOT
-lazy from session import connect_session_bus, find_session_bus
-lazy from transport import OPEN_PORT
-lazy from wayland import WAYLAND_SOCKET_NAME
+from environment import runtime_directory, xdg_home
+from portal.protocol import DESCRIPTOR_METHODS, DESKTOP_SERVICES
+from resources import HOST_ROOT
+from session import connect_session_bus, find_session_bus
+from transport import OPEN_PORT
+from wayland import WAYLAND_SOCKET_NAME
 
 DIAGNOSTIC_SCOPES = ("host", "guest", "runtime")
 DESCRIPTOR_OPERATIONS = tuple(

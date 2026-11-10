@@ -3,7 +3,7 @@
   coreutils,
   curl,
   gnused,
-  python315Packages,
+  python3Packages,
   writeShellApplication,
   finalAttrs,
   manifestRoot,
@@ -12,7 +12,7 @@
 }:
 
 let
-  python = python315Packages.python.withPackages (packages: [ packages.vdf ]);
+  python = python3Packages.python.withPackages (packages: [ packages.vdf ]);
 in
 writeShellApplication {
   name = "update-${finalAttrs.pname}";
@@ -23,7 +23,7 @@ writeShellApplication {
     python
   ];
   text = ''
-    release=$(curl --fail --silent --show-error ${lib.escapeShellArg finalAttrs.passthru.manifestUrl} | python3.15 -c '
+    release=$(curl --fail --silent --show-error ${lib.escapeShellArg finalAttrs.passthru.manifestUrl} | ${lib.getExe python} -c '
     import re
     import sys
     import vdf

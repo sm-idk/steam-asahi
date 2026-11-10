@@ -1,6 +1,7 @@
 """Names, operation policies, and limits shared by desktop portal consumers"""
 
 from functools import lru_cache
+from types import MappingProxyType
 
 from jeepney import MatchRule
 
@@ -28,7 +29,7 @@ INHIBIT = "org.freedesktop.portal.Inhibit"
 SCREENCAST = "org.freedesktop.portal.ScreenCast"
 SESSION = "org.freedesktop.portal.Session"
 DESKTOP_SERVICES = (PORTAL, DOCUMENTS, NOTIFICATIONS)
-DESCRIPTOR_METHODS = frozendict(
+DESCRIPTOR_METHODS = MappingProxyType(
     {
         (OPEN_URI, "OpenFile", "sha{sv}"): "shared-file",
         (OPEN_URI, "OpenDirectory", "sha{sv}"): "shared-file",

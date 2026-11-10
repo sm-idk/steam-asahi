@@ -22,13 +22,13 @@ let
       };
 in
 pkgs.mkShell {
-  UV_PYTHON = lib.meta.getExe pkgs.python315;
+  UV_PYTHON = lib.meta.getExe pkgs.python3;
 
   packages =
     builtins.attrValues {
       inherit (pkgs)
         uv
-        python315
+        python3
         capnproto
         pkg-config
         muvm

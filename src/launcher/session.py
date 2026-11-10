@@ -13,18 +13,21 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_from_bytes, unquote_to_bytes
 
-lazy from anyio.abc import UNIXSocketStream
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-lazy from environment import runtime_directory
+from anyio.abc import UNIXSocketStream
 
-lazy from transport import (
+from environment import runtime_directory
+
+from transport import (
     BUS_PORT,
     channel_path,
     close_streams,
     relay_streams,
     start_listener,
 )
-lazy from wayland import initialize_guest_wayland
+from wayland import initialize_guest_wayland
 
 BUS_SOCKET_NAME = "steam-asahi-bus"
 BUS_AUTH_LIMIT = 16384
@@ -438,7 +441,6 @@ def initialize_guest_bus() -> None:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     if os.environ.get("STEAM_ASAHI_SESSION_BUS") == "1":
         initialize_guest_bus()
     if os.environ.get("STEAM_ASAHI_WAYLAND") == "1":

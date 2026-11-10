@@ -3,8 +3,9 @@
 import os
 from collections.abc import Mapping
 from pathlib import Path
+from types import MappingProxyType
 
-XDG_HOME_DEFAULTS = frozendict(
+XDG_HOME_DEFAULTS = MappingProxyType(
     {
         "XDG_CACHE_HOME": ".cache",
         "XDG_CONFIG_HOME": ".config",
