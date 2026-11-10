@@ -311,6 +311,11 @@ in
     }
 
     (mkIf cfg.enable {
+      # The ARM64 client still needs GTK2's legacy ABI
+      nixpkgs.config = mkIf (cfg.backend == "arm64") {
+        problems.handlers."gtk+".broken = "warn";
+      };
+
       assertions = [
         {
           assertion = pkgs.stdenv.hostPlatform.system == "aarch64-linux";

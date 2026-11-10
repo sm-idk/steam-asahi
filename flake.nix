@@ -19,6 +19,8 @@
           config = {
             allowUnfree = true;
             allowUnsupportedSystem = system != nativeSystem;
+            # The ARM64 client still needs GTK2's legacy ABI
+            problems.handlers."gtk+".broken = "warn";
           };
           overlays = [ self.overlays.default ];
         }

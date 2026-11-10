@@ -2,14 +2,14 @@
 name = "steam-asahi"
 version = "0.0.0"
 requires-python = "==3.15.*"
-# Match the runtime package set selected by flake.lock and compatibility overrides
+# Match the runtime package set selected by flake.lock
 dependencies = [
   "aiotools==2.2.4",
   "anyio==4.15.1",
   "boltons==25.0.0",
   "jeepney==0.9.0",
   "msgspec==0.21.1",
-  "pillow==12.3.0",
+  "pillow==13.0.0",
   "psutil==7.2.2",
   "pycapnp==2.2.3",
   "tenacity==9.2.0",
@@ -18,20 +18,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-portal = ["pygobject==3.56.3"]
+portal = ["pygobject==3.58.0"]
 
 [dependency-groups]
 dev = [
   "packaging==26.3",
-  "ruff==0.17.2",
-  "tomlkit==0.15.1",
-  "ty==0.0.91",
+  "ruff==0.17.4",
+  "tomlkit==0.15.2",
+  "ty==0.0.98",
 ]
 
 [tool.uv]
 package = false
 # Keep transitive runtime dependencies aligned with the same Nix package set
-constraint-dependencies = ["async-lru==2.3.0", "idna==3.18", "pycairo==1.29.0"]
+constraint-dependencies = ["async-lru==2.4.0", "idna==3.20", "pycairo==1.29.0"]
 
 [tool.uv.sources]
 # Nixpkgs uses this upstream tag, which was not published on PyPI

@@ -81,6 +81,10 @@ The first x86 launch downloads a Fedora 44 FEX root filesystem (about 1.3 GB).
 The module sets up host graphics and controller rules, but you'll need to
 configure your audio server separately.
 
+The ARM64 backend still requires unmaintained GTK2 libraries. The module allows
+that specific dependency while retaining nixpkgs' warning. Overlay-only users
+must set `nixpkgs.config.problems.handlers."gtk+".broken = "warn"` themselves.
+
 ## Configuration
 
 All settings below go under `programs.steam-asahi`:
