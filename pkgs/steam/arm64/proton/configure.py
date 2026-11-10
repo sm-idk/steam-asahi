@@ -1,6 +1,6 @@
-#!/usr/bin/env python3.15
+#!/usr/bin/env python3.14
 # /// script
-# requires-python = "==3.15.*"
+# requires-python = "==3.14.*"
 # dependencies = ["boltons==25.0.0", "vdf==3.4"]
 # ///
 
@@ -25,7 +25,7 @@ COMPAT_TOOL_MAPPING_PATH = (
     "Steam",
     "CompatToolMapping",
 )
-PROTON_MAPPING_DEFAULTS = frozendict({"config": "", "priority": "250"})
+PROTON_MAPPING_DEFAULTS = {"config": "", "priority": "250"}
 
 
 class Arguments(argparse.Namespace):

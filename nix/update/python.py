@@ -52,8 +52,8 @@ def align(requirements):
         requirements[index] = str(requirement)
 
 
-def align_document(document):
-    document["requires-python"] = f"=={python_minor}.*"
+def align_document(document, minor=python_minor):
+    document["requires-python"] = f"=={minor}.*"
     align(document.get("dependencies", []))
     for requirements in document.get("optional-dependencies", {}).values():
         align(requirements)
@@ -97,14 +97,14 @@ if block is None:
 inline = tomlkit.parse(
     "".join(line.removeprefix("# ") for line in block[1].splitlines(True))
 )
-align_document(inline)
+align_document(inline, metadata["scriptPythonMinor"])
 inline_text = "".join(
     f"# {line}\n" for line in tomlkit.dumps(inline).splitlines()
 )
 script = script[: block.start(1)] + inline_text + script[block.end(1) :]
 script = re.sub(
     r"\A#!/usr/bin/env python[0-9.]+",
-    f"#!/usr/bin/env python{python_minor}",
+    f"#!/usr/bin/env python{metadata['scriptPythonMinor']}",
     script,
 )
 

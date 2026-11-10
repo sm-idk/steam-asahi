@@ -1,5 +1,6 @@
 {
   lib,
+  python3,
   python315,
   ruff,
   ty,
@@ -38,6 +39,7 @@ let
       python = lib.getExe python315;
       pythonVersion = python315.version;
       pythonMinor = lib.versions.majorMinor python315.version;
+      scriptPythonMinor = lib.versions.majorMinor python3.version;
       # Tenacity is Git-sourced because Nix's tag is not available on PyPI
       gitSources.tenacity = {
         git = packages.tenacity.src.gitRepoUrl;
@@ -45,7 +47,8 @@ let
       };
     }
   );
-  python = python315.withPackages (ps: [
+  # The updater itself does not need the launcher's Python 3.15 interpreter
+  python = python3.withPackages (ps: [
     ps.packaging
     ps.tomlkit
   ]);

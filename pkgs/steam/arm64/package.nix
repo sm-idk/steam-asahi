@@ -8,6 +8,7 @@
   mkLauncherPackage,
   writeShellApplication,
   replaceVars,
+  python3,
   python315,
   waypipe,
   steam-arm64-client,
@@ -158,7 +159,7 @@ let
 
   protonConfigurator =
     let
-      python = python315.withPackages (packages: [
+      python = python3.withPackages (packages: [
         packages.boltons
         packages.vdf
       ]);
