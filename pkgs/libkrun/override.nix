@@ -6,7 +6,7 @@
   nix-update-script,
 }:
 let
-  libkrunOverrideVersion = "1.19.6";
+  libkrunOverrideVersion = "1.19.8";
   isCurrent = lib.versionAtLeast upstream.version libkrunOverrideVersion;
   overridden = upstream.overrideAttrs (
     finalAttrs: old: {
@@ -15,11 +15,11 @@ let
         owner = "libkrun";
         repo = "libkrun";
         tag = "v${finalAttrs.version}";
-        hash = "sha256-h37J1J/oe4PpY5Xtv8Js/wEA7av9M/VK4OTY1svK++0=";
+        hash = "sha256-JcMkgtoNlY2cK32ZjlyGCne2gIWXTSqQSEiOadUSd4E=";
       };
       cargoDeps = rustPlatform.fetchCargoVendor {
         inherit (finalAttrs) src;
-        hash = "sha256-SPlozqdmX0khawoFjZrqYjQ5qDY4tSVa7gpehYHUTz8=";
+        hash = "sha256-FrHkBeTO1RL/hRT0H6okuGdbGiGNljwUOepBsQvrEug=";
       };
       passthru = (old.passthru or { }) // {
         updateScript = nix-update-script {
