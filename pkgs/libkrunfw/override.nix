@@ -7,7 +7,8 @@
 }:
 let
   libkrunfwOverrideVersion = "5.6.2";
-  libkrunfwKernelVersion = "6.12.113";
+  # Track fixes within libkrunfw's supported 6.12 LTS kernel series
+  libkrunfwKernelVersion = "6.12.116";
   isCurrent = lib.versionAtLeast upstream.version libkrunfwOverrideVersion;
   overridden = upstream.overrideAttrs (
     finalAttrs: old: {
@@ -20,7 +21,7 @@ let
       };
       kernelSrc = fetchurl {
         url = "mirror://kernel/linux/kernel/v6.x/linux-${libkrunfwKernelVersion}.tar.xz";
-        hash = "sha256-4JtnJ+XFISU/DUFpSQC5w4+3YE2301I4qBl6qffeJCg=";
+        hash = "sha256-yz7T391H5q3knckz2zNP2G4kyt7pINphLCYrDptqURs=";
       };
       makeFlags = (old.makeFlags or [ ]) ++ [ "KERNEL_VERSION=linux-${libkrunfwKernelVersion}" ];
       passthru = (old.passthru or { }) // {
