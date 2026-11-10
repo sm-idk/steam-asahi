@@ -14,6 +14,7 @@ in
 {
   steam-x86_64-client = callPackage ./steam/client/x86_64.nix { };
   steam-arm64-client = callPackage ./steam/client/package.nix { };
-  steam-asahi = callPackage ./steam/fex/package.nix { };
+  steam-asahi = pkgs.steam-asahi-arm64;
+  steam-asahi-x64 = callPackage ./steam/fex/package.nix { };
   steam-asahi-arm64 = callPackage ./steam/arm64/package.nix { };
 }

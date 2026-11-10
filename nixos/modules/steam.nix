@@ -28,8 +28,8 @@ let
   launcherTypes = (import ../../lib/launcher/options.nix { inherit lib; }).types;
 
   backendPackages = {
-    x86-fex = pkgs.steam-asahi;
-    arm64 = pkgs.steam-asahi-arm64;
+    arm64 = pkgs.steam-asahi;
+    x86-fex = pkgs.steam-asahi-x64;
   };
 
   backendEnvironments = import ../../lib/launcher/environments.nix;
@@ -104,15 +104,16 @@ in
 
     backend = mkOption {
       type = lib.types.enum [
-        "x86-fex"
         "arm64"
+        "x86-fex"
       ];
-      default = "x86-fex";
+      default = "arm64";
       description = ''
-        Steam client backend. `x86-fex` runs the x86_64 public-beta client
-        through FEX, while `arm64` runs Valve's experimental native ARM64
-        public beta. Both use muvm because Asahi hosts use 16K pages while
-        Valve's binaries currently require a conventional 4K-page environment.
+        Steam client backend. The default `arm64` runs Valve's experimental
+        native ARM64 public beta. Opt into `x86-fex` to run the x86_64
+        public-beta client through FEX instead. Both use muvm because Asahi
+        hosts use 16K pages while Valve's binaries currently require a
+        conventional 4K-page environment.
       '';
     };
 
@@ -121,9 +122,9 @@ in
       default = backendPackages.${cfg.backend};
       defaultText = lib.options.literalExpression ''
         if config.programs.steam-asahi.backend == "arm64" then
-          pkgs.steam-asahi-arm64
-        else
           pkgs.steam-asahi
+        else
+          pkgs.steam-asahi-x64
       '';
       apply =
         package:

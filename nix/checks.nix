@@ -12,7 +12,7 @@ let
   applications =
     lib.mapAttrs' (
       name: value: lib.nameValuePair "fex-${name}" value
-    ) pkgs.steam-asahi.shellApplications
+    ) pkgs.steam-asahi-x64.shellApplications
     // lib.mapAttrs' (
       name: value: lib.nameValuePair "arm64-${name}" value
     ) pkgs.steam-asahi-arm64.shellApplications

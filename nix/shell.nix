@@ -14,7 +14,7 @@ let
         }
       )
       {
-        steam-asahi-x64 = pkgs.steam-asahi;
+        steam-asahi-x64 = pkgs.steam-asahi-x64;
         steam-asahi-arm64 = pkgs.steam-asahi-arm64;
         steam-asahi-arm64-test = pkgs.steam-asahi-arm64.override {
           customSteamHomeDir = "steam-asahi-arm64-test-home";
@@ -45,7 +45,7 @@ pkgs.mkShell {
     echo "  FEXBash: $(command -v FEXBash || echo missing)"
     echo ""
     echo "Backend commands:"
-    echo "  steam-asahi              # x86_64/FEX default"
+    echo "  steam-asahi              # ARM64 beta default, isolated state"
     echo "  steam-asahi-x64          # explicit x86_64/FEX backend"
     echo "  steam-asahi-arm64        # ARM64 beta, isolated state by default"
     echo "  steam-asahi-arm64-test   # ARM64 beta, separate development test state"

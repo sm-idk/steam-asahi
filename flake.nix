@@ -1,5 +1,5 @@
 {
-  description = "Steam on NixOS Asahi Linux via x86_64/FEX or the native ARM64 beta";
+  description = "Steam on NixOS Asahi Linux via the native ARM64 beta or opt-in x86_64/FEX";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs";
 
@@ -55,6 +55,7 @@
             waypipe
             steam-asahi-arm64
             steam-asahi
+            steam-asahi-x64
             ;
           default = pkgs.steam-asahi;
         }
@@ -69,7 +70,7 @@
           formatter = self.formatter.${system};
         }
         // lib.optionalAttrs (system == nativeSystem) {
-          inherit (pkgs) steam-asahi steam-asahi-arm64;
+          inherit (pkgs) steam-asahi steam-asahi-arm64 steam-asahi-x64;
         }
       ) pkgsFor;
 

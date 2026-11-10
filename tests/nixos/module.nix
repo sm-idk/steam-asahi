@@ -40,8 +40,8 @@ let
     users.users.alice.extraGroups = [ "kvm" ];
   };
 
-  arm64 = mkAarch64System {
-    programs.steam-asahi.backend = "arm64";
+  x86 = mkAarch64System {
+    programs.steam-asahi.backend = "x86-fex";
     services.pipewire = {
       enable = true;
       pulse.enable = true;
@@ -62,6 +62,7 @@ let
   probePackage = defaults.pkgs.callPackage (
     {
       cpuList ? null,
+      customSteamHomeDir ? null,
       extraEnv ? { },
       memoryMiB ? null,
       publishPorts ? [ ],
@@ -71,6 +72,7 @@ let
       passthru = {
         inherit
           cpuList
+          customSteamHomeDir
           extraEnv
           memoryMiB
           publishPorts
@@ -185,12 +187,12 @@ in
 assert builtins.length deduplicated.config.nixpkgs.overlays == 1;
 assert
   defaults.config.programs.steam-asahi.extraEnv == {
-    FEX_MULTIBLOCK = "0";
     GTK_IM_MODULE = "xim";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
   };
 assert
-  arm64.config.programs.steam-asahi.extraEnv == {
+  x86.config.programs.steam-asahi.extraEnv == {
+    FEX_MULTIBLOCK = "0";
     GTK_IM_MODULE = "xim";
     PRESSURE_VESSEL_IMPORT_VULKAN_LAYERS = "0";
   };
@@ -268,7 +270,7 @@ assert builtins.length (steamAsahiFailures wrongPlatform) == 1;
 assert any (
   warning: hasInfix "expects a PulseAudio-compatible socket" warning
 ) noAudio.config.warnings;
-assert any (warning: hasInfix "requires access to `/dev/kvm`" warning) arm64.config.warnings;
+assert any (warning: hasInfix "requires access to `/dev/kvm`" warning) x86.config.warnings;
 assert !(any (warning: hasInfix "requires access to `/dev/kvm`" warning) defaults.config.warnings);
 pkgs.runCommand "steam-asahi-nixos-module-test" { } ''
   ${optionalString (pkgs.stdenv.hostPlatform.system == "aarch64-linux") ''

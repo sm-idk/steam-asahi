@@ -3,7 +3,7 @@
   runCommand,
   unzip,
   writeShellApplication,
-  steam-asahi,
+  steam-asahi-x64,
   steam-x86_64-client,
 }:
 
@@ -46,7 +46,7 @@ let
         mkdir -p "$out/share/icons"
       '';
 
-  package = steam-asahi.override {
+  package = steam-asahi-x64.override {
     muvm = fakeMuvm;
     fex = fakeFex;
     steam-unwrapped = fakeSteam;

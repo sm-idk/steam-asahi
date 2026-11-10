@@ -7,8 +7,8 @@ launcher, NixOS module, and desktop integration.
 Valve's binaries need 4K memory pages, but Linux on Apple Silicon uses 16K
 pages. The launcher uses a 4K-page
 [`muvm`](https://github.com/AsahiLinux/muvm) microVM with accelerated Asahi
-graphics. The default backend runs x86 Steam through FEX. The native ARM64
-Steam beta is available for testing.
+graphics. The default backend runs Valve's native ARM64 Steam beta. The
+x86 client through FEX is available as an opt-in.
 
 > [!WARNING]
 > This project is experimental and was developed with substantial LLM
@@ -73,11 +73,10 @@ Replace `«hostname»` and `«username»`, then rebuild:
 sudo nixos-rebuild switch --flake .#«hostname»
 ```
 
-Log out and back in if you added yourself to `kvm`. Then open **Steam Asahi**
-from the application launcher, or run `steam-asahi` in your host shell.
-Don't run it as root.
+Log out and back in if you added yourself to `kvm`. Then open **Steam (Asahi,
+ARM64 beta)** from the application launcher, or run `steam-asahi` in your host
+shell. Don't run it as root.
 
-The first x86 launch downloads a Fedora 44 FEX root filesystem (about 1.3 GB).
 The module sets up host graphics and controller rules, but you'll need to
 configure your audio server separately.
 
@@ -91,7 +90,7 @@ All settings below go under `programs.steam-asahi`:
 
 | Option               | Default          | Purpose                                                                 |
 | -------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `backend`            | `"x86-fex"`      | Select x86/FEX or experimental `"arm64"`                                |
+| `backend`            | `"arm64"`        | Native ARM64 beta, or opt into `"x86-fex"`                              |
 | `cpuList`            | `null`           | Host CPU IDs, one guest vCPU per ID. Defaults to performance cores      |
 | `memoryMiB`          | `null`           | VM memory ceiling. Defaults to 80% of host RAM, allocated on demand     |
 | `vramMiB`            | `null`           | Reported GPU heap size. Defaults to half of host RAM, not a reservation |
@@ -131,10 +130,10 @@ Use `--xwayland` instead to select XWayland. This only selects the display.
 It doesn't enable Proton's Wine Wayland driver or guarantee that a game works
 with Wayland.
 
-## Experimental ARM64 backend
+## ARM64 client setup
 
-Set `programs.steam-asahi.backend = "arm64"` and rebuild to use Valve's native
-ARM64 public beta. It still needs the 4K-page microVM.
+The default client is Valve's experimental native ARM64 public beta. It still
+needs the 4K-page microVM.
 
 This backend keeps its state in `$XDG_DATA_HOME/steam-asahi-arm64-home`
 (normally `~/.local/share/steam-asahi-arm64-home`). **Don't add your x86 Steam
@@ -163,6 +162,21 @@ steam-asahi --force-proton APPID
 Before changing a compatibility mapping, the launcher makes a one-time backup
 of `config.vdf` as `config.vdf.steam-asahi-backup`.
 
+## Opt into the x86 client
+
+To use the x86_64 public-beta client through FEX instead, set this and rebuild:
+
+```nix
+programs.steam-asahi.backend = "x86-fex";
+```
+
+The first x86 launch downloads a Fedora 44 FEX root filesystem (about 1.3 GB).
+This backend uses the existing x86 Steam state, separate from the ARM64 home.
+
+For direct flake or overlay use, `steam-asahi` and the default flake package
+select ARM64. Select `steam-asahi-x64` explicitly for x86/FEX. The explicitly
+named `steam-asahi-arm64` package remains available.
+
 ## Troubleshooting
 
 - **Waiting for network at login:** a known Steam client regression can affect
@@ -185,9 +199,9 @@ of `config.vdf` as `config.vdf.steam-asahi-backup`.
 
 On an Apple Silicon host that meets the requirements, run `nix develop` from a
 checkout to try the launchers without installing the module. The shell provides
-`steam-asahi` (x86/FEX), `steam-asahi-arm64`, and `steam-asahi-arm64-test`.
-The test launcher uses a separate ARM64 home. The shell doesn't apply the
-module's system configuration.
+`steam-asahi` (ARM64), `steam-asahi-x64` (x86/FEX), `steam-asahi-arm64`, and
+`steam-asahi-arm64-test`. The test launcher uses a separate ARM64 home. The
+shell doesn't apply the module's system configuration.
 
 Format and check the code with:
 
