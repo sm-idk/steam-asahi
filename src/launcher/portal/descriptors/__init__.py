@@ -113,7 +113,7 @@ async def receive_ancillary(
                 socket.MSG_CMSG_CLOEXEC,
             )
             break
-        except BlockingIOError, InterruptedError:
+        except (BlockingIOError, InterruptedError):
             await socket_ready(connection)
     descriptors: list[int] = []
     invalid = False
@@ -240,7 +240,7 @@ class UnixMessageSocket:
                                     [data], controls, socket.MSG_NOSIGNAL
                                 )
                                 break
-                            except BlockingIOError, InterruptedError:
+                            except (BlockingIOError, InterruptedError):
                                 await socket_ready(self.connection, write=True)
                         if sent == 0:
                             raise ConnectionError(
@@ -339,7 +339,7 @@ class RegistryClient:
                             if count != len(frame):
                                 raise ValueError("truncated registry request")
                             break
-                        except BlockingIOError, InterruptedError:
+                        except (BlockingIOError, InterruptedError):
                             await socket_ready(self.connection, write=True)
                     reply, descriptors = await receive_ancillary(
                         self.connection, REGISTRY_FRAME.size + 1

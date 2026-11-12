@@ -115,7 +115,7 @@ class FexLauncher:
                     return
         try:
             configuration = msgspec.json.decode(config_path.read_bytes())
-        except OSError, msgspec.DecodeError:
+        except (OSError, msgspec.DecodeError):
             configuration = {}
         # FEX stores options in Config; accept the legacy top-level form too
         if isinstance(configuration, dict):

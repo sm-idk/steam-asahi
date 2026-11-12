@@ -77,7 +77,7 @@ class FilePortalRelay:
                     raise ValueError("the caller's filesystem is unavailable")
                 try:
                     mapped = self.namespace.host_uri(path.as_uri())
-                except OSError, ValueError:
+                except (OSError, ValueError):
                     # Keep app_icon separate from image-data: notification
                     # servers may show both, with distinct image priorities
                     if key == "app_icon":

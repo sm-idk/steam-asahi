@@ -70,7 +70,7 @@ def service_lock(path: Path, identity: str):
             except BlockingIOError:
                 try:
                     status = service_status(path)
-                except OSError, ValueError:
+                except (OSError, ValueError):
                     if time.monotonic() >= deadline:
                         raise TimeoutError(
                             f"{path}: port is reserved but its broker is not "
