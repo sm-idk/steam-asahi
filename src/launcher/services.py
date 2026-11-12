@@ -229,7 +229,7 @@ def group_members(group: int) -> list[int]:
                 psutil.STATUS_DEAD,
             ):
                 members.append(process.pid)
-        except OSError, psutil.Error:
+        except (OSError, psutil.Error):
             continue
     return members
 
