@@ -34,11 +34,11 @@ in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "steam-arm64-client";
   # Steam's public beta uses a Unix timestamp as its client version.
-  version = "1794266161";
+  version = "1795567705";
 
   src = fetchurl {
-    url = "https://client-update.fastly.steamstatic.com/bins_linuxarm64_linuxarm64.zip.a01d8021916042e5ea32e64b5c5bdcc318c51e55";
-    hash = "sha256-03lZ5TSARDDxZttlWWrDzt+Fhwz83A48+Xapc9vAFfE=";
+    url = "https://client-update.fastly.steamstatic.com/bins_linuxarm64_linuxarm64.zip.b81657ff647b92439cfb5d5034513349acbcdbe4";
+    hash = "sha256-WcTb0e0NlT1iuT8eKYSjXw4W0C794HJJ0de0plC2+uM=";
   };
 
   nativeBuildInputs = [ unzip ];
