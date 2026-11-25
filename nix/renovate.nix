@@ -14,9 +14,11 @@ let
     mode = "silent";
     onboarding = false;
     configMigration = false;
-    dependencyDashboard = false;
+    dependencyDashboard = {
+      enabled = false;
+      title = "Unused Renovate approvals ";
+    };
     dependencyDashboardApproval = false;
-    dependencyDashboardTitle = "Unused Renovate approvals ";
     prCreation = "approval";
     suppressNotifications = [
       "configErrorIssue"
@@ -63,7 +65,7 @@ writeShellApplication {
       (name: runPolicy: ''
         ${name}=$(node --eval '
         const policy = JSON.parse(process.argv[1]);
-        policy.dependencyDashboardTitle += process.argv[2];
+        policy.dependencyDashboard.title += process.argv[2];
         process.stdout.write(JSON.stringify(policy));
         ' ${lib.escapeShellArg (builtins.toJSON runPolicy)} "$dashboard_suffix")
       '')

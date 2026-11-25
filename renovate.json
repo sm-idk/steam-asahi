@@ -7,7 +7,9 @@
   "baseBranchPatterns": ["main"],
   "branchConcurrentLimit": 5,
   "configMigration": false,
-  "dependencyDashboard": false,
+  "dependencyDashboard": {
+    "enabled": false
+  },
   "dependencyDashboardApproval": false,
   "prCreation": "approval",
   "semanticCommits": "enabled",
