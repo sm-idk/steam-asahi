@@ -55,12 +55,11 @@ in
       inherit name;
       executable = true;
       text =
-        "#!/bin/sh\n"
-        + lib.concatMapStringsSep "\n" (option: "set -o ${option}") [
-          "errexit"
-          "nounset"
+        lib.concatLines [
+          "#!/bin/sh"
+          "set -eu"
+          ""
         ]
-        + "\n\n"
         + text;
       checkPhase = ''
         ${runtimeShell} -n "$target"

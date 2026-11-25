@@ -150,11 +150,9 @@ in
     local -a existing_entries=()
 
     shift
-    while [[ "''${existing_value}" == *:* ]]; do
-      existing_entries+=("''${existing_value%%:*}")
-      existing_value=''${existing_value#*:}
-    done
-    existing_entries+=("''${existing_value}")
+    mapfile -td : existing_entries <<< "$existing_value"
+    # Remove only the newline appended by the here-string
+    existing_entries[-1]=''${existing_entries[-1]%$'\n'}
     for entry in "$@" "''${existing_entries[@]}"; do
       [[ -n "''${entry}" ]] || continue
       joined_value+="''${joined_value:+:}''${entry}"

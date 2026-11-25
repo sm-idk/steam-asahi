@@ -55,11 +55,11 @@ in
       publishPorts,
     }:
     {
-      CPU_ARGS = lib.optionals (cpuList != null) [
-        "--cpu-list=${lib.concatMapStringsSep "," toString cpuList}"
-      ];
-      MEMORY_ARGS = lib.optionals (memoryMiB != null) [ "--mem=${toString memoryMiB}" ];
-      VRAM_ARGS = lib.optionals (vramMiB != null) [ "--vram=${toString vramMiB}" ];
+      CPU_ARGS =
+        lib.optional (cpuList != null)
+          "--cpu-list=${lib.concatMapStringsSep "," toString cpuList}";
+      MEMORY_ARGS = lib.optional (memoryMiB != null) "--mem=${toString memoryMiB}";
+      VRAM_ARGS = lib.optional (vramMiB != null) "--vram=${toString vramMiB}";
       NETWORK_ARGS = lib.concatMap (specification: [
         "--publish"
         specification

@@ -82,14 +82,14 @@ in
       owner ? null,
       group ? null,
     }:
+    let
+      arguments = lib.cli.toCommandLineShellGNU { } {
+        inherit mode owner group;
+        no-target-directory = true;
+      };
+    in
     lib.concatMapAttrsStringSep "\n" (path: source: ''
-      install ${
-        lib.escapeShellArgs (
-          [ "--mode=${mode}" ]
-          ++ lib.optional (owner != null) "--owner=${owner}"
-          ++ lib.optional (group != null) "--group=${group}"
-        )
-      } --no-target-directory -- \
+      install ${arguments} -- \
         ${lib.escapeShellArg source} ${root}/${lib.escapeShellArg path} || return
     '') targets;
 

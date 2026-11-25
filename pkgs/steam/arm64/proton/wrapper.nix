@@ -81,20 +81,13 @@ in
   }
 
   # Steam consumes path-conversion results from stdout as protocol data
+  status=0
   case "''${verb}" in
     getcompatpath | getnativepath)
-      if run_compatibility_command "$@" 2>>"''${log_path}"; then
-        status=0
-      else
-        status=$?
-      fi
+      run_compatibility_command "$@" 2>>"''${log_path}" || status=$?
       ;;
     *)
-      if run_compatibility_command "$@" >>"''${log_path}" 2>&1; then
-        status=0
-      else
-        status=$?
-      fi
+      run_compatibility_command "$@" >>"''${log_path}" 2>&1 || status=$?
       ;;
   esac
 

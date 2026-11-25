@@ -102,11 +102,7 @@ in
     local steamapps_directory="''${data_home}/Steam/steamapps/common"
     local status
     local steam_native_directory
-    local usage
-
-    printf -v usage '%s%s' \
-      'usage: steam-asahi-arm64-guest [--steam] command ' \
-      '[arguments...]'
+    local -r usage='usage: steam-asahi-arm64-guest [--steam] command [arguments...]'
 
     (($# > 0)) || die "''${usage}"
 
