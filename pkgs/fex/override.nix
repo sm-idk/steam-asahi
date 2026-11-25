@@ -4,13 +4,13 @@
   nix-update-script,
 }:
 let
-  fexOverrideVersion = "2611";
+  fexOverrideVersion = "2611.1";
   isCurrent = lib.versionAtLeast upstream.version fexOverrideVersion;
   overridden = upstream.overrideAttrs (old: {
     version = fexOverrideVersion;
     src = old.src.overrideAttrs (_: {
       rev = "refs/tags/FEX-${fexOverrideVersion}";
-      hash = "sha256-CIjuyguU9PozjULOu53pepqY7vZDCzGpXIzSv0jtFgw=";
+      hash = "sha256-MDn2qprtUXquEBRgu9+sPyBhAw3ulTlQYeWq0Aa/sLM=";
     });
     doCheck = false;
     passthru = (old.passthru or { }) // {
