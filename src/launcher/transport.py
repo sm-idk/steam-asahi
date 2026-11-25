@@ -117,7 +117,10 @@ async def relay_streams(
         second_copy = tasks.create_task(copy(second, first, True))
         try:
             await asyncio.gather(first_copy, second_copy)
-        except (BrokenResourceError, ClosedResourceError):
+        except (
+            BrokenResourceError,
+            ClosedResourceError,
+        ):
             pass
 
 

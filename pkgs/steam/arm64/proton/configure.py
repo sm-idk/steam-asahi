@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from contextlib import suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -115,16 +116,16 @@ def update_config(config_path: Path, app_id: str, tool_name: str) -> bool:
         f"{config_path.name}.steam-asahi-backup"
     )
     try:
-        try:
-            with atomic_save(
+        with (
+            suppress(FileExistsError),
+            atomic_save(
                 backup_path,
                 overwrite=False,
                 file_perms=0o600,
                 part_file=f".{uuid4().hex}",
-            ) as backup:
-                backup.write(original)
-        except FileExistsError:
-            pass
+            ) as backup,
+        ):
+            backup.write(original)
 
         with atomic_save(
             config_path, text_mode=True, part_file=f".{uuid4().hex}"

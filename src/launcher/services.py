@@ -70,7 +70,10 @@ def service_lock(path: Path, identity: str):
             except BlockingIOError:
                 try:
                     status = service_status(path)
-                except (OSError, ValueError):
+                except (
+                    OSError,
+                    ValueError,
+                ):
                     if time.monotonic() >= deadline:
                         raise TimeoutError(
                             f"{path}: port is reserved but its broker is not "
@@ -102,7 +105,7 @@ def start_supervisor(
             os.getpid() if parent_pid is None else parent_pid
         )
         resources.callback(os.close, parent)
-        ready, notification = os.pipe2(os.O_CLOEXEC)
+        ready, notification = os.pipe()
         resources.callback(os.close, ready)
         notify = resources.enter_context(os.fdopen(notification, "wb"))
         process = subprocess.Popen(
@@ -171,14 +174,11 @@ async def control_server(path: Path, identity: str) -> asyncio.Server:
 
 
 def vm_running(path: Path) -> bool:
-    try:
-        with path.open("rb") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-    except FileNotFoundError:
-        pass
+    with suppress(FileNotFoundError), path.open("rb") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
     return False
 
 
@@ -205,10 +205,8 @@ async def watch_owner(
                 return
             # A forwarded muvm command can exit while the original VM lives
             # Continue watching the VM lock instead of that command's pidfd
-            try:
+            with suppress(TimeoutError):
                 await asyncio.wait_for(stopped.wait(), timeout=0.5)
-            except TimeoutError:
-                pass
 
 
 def remove_service(path: Path) -> None:
@@ -229,7 +227,10 @@ def group_members(group: int) -> list[int]:
                 psutil.STATUS_DEAD,
             ):
                 members.append(process.pid)
-        except (OSError, psutil.Error):
+        except (
+            OSError,
+            psutil.Error,
+        ):
             continue
     return members
 

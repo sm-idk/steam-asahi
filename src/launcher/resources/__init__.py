@@ -450,7 +450,10 @@ class Namespace:
                 if process is None:
                     break
                 mounts = read_mounts(Path(f"/proc/{process.pid}"))
-            except (OSError, psutil.Error):
+            except (
+                OSError,
+                psutil.Error,
+            ):
                 break
         raise ValueError("the shared mount ancestry is unavailable")
 

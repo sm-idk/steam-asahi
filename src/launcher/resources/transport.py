@@ -30,8 +30,7 @@ def check_guest_resources(helper: Path) -> bool:
         result = subprocess.run(
             [helper, "--check"],
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=CHECK_TIMEOUT,
         )
     except subprocess.TimeoutExpired as error:

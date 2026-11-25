@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
@@ -60,7 +61,7 @@ def align_document(document):
 
 
 def check_lock(content, project_name):
-    for package in tomlkit.parse(content)["package"]:
+    for package in tomllib.loads(content)["package"]:
         if package["name"] == project_name:
             continue
         name = package["name"]
