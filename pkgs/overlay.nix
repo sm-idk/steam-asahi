@@ -4,7 +4,7 @@ final: prev:
 // {
   # Import override expressions directly so the upstream .override API survives
   fex = import ./fex/override.nix {
-    inherit (final) lib nix-update-script;
+    inherit (final) lib fetchpatch nix-update-script;
     upstream = prev.fex;
   };
   libkrun = import ./libkrun/override.nix {

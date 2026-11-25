@@ -1,5 +1,6 @@
 {
   lib,
+  fetchpatch,
   upstream,
   nix-update-script,
 }:
@@ -12,6 +13,13 @@ let
       rev = "refs/tags/FEX-${fexOverrideVersion}";
       hash = "sha256-MDn2qprtUXquEBRgu9+sPyBhAw3ulTlQYeWq0Aa/sLM=";
     });
+    # CMake 4.5 rejects DEPENDS in install(CODE)
+    patches = (old.patches or [ ]) ++ [
+      (fetchpatch {
+        url = "https://github.com/FEX-Emu/FEX/commit/e1ae133ddd31959b9050b619714950996f21c4ac.patch";
+        hash = "sha256-CCjLsfyTeY9ZnCMnGbdQxY77JXOgXLgEJDizqscANIk=";
+      })
+    ];
     doCheck = false;
     passthru = (old.passthru or { }) // {
       updateScript = nix-update-script {
