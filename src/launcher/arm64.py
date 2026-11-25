@@ -283,11 +283,15 @@ class Arm64Launcher:
             "Starting native ARM64 Steam (4K-page microVM)...",
         )
         print("Launching native ARM64 Steam via muvm...")
+        # muvm proxies a forwarded command's stdio only when asked, and that
+        # proxy rejects the /dev/null an application launcher provides; only
+        # the --guest diagnostic above asks for the proxy
         self.run_guest(
             [
                 "--steam",
                 str(self.client / "steam"),
                 *ARM64_CLIENT_ARGS,
                 *arguments,
-            ]
+            ],
+            interactive=False,
         )

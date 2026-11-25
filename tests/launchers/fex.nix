@@ -107,7 +107,10 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   test "$(grep -Fxc -- '--publish' "$HOME/steam-arguments")" = 2
   grep -Fx -- '27036/udp' "$HOME/steam-arguments"
   grep -Fx -- '27040/tcp' "$HOME/steam-arguments"
-  grep -Fx -- '--interactive' "$HOME/steam-arguments"
+  if grep -Fqx -- '--interactive' "$HOME/steam-arguments"; then
+    printf '%s\n' 'the Steam launch asked muvm to proxy stdio' >&2
+    exit 1
+  fi
   grep -F -- 'PATH=/run/wrappers/bin:' "$HOME/steam-arguments"
   grep -F -- '/bin/FEXBash' "$HOME/steam-arguments"
   fex_line=$(grep -Fn -- '/bin/FEXBash' "$HOME/steam-arguments" \
@@ -165,6 +168,7 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   test "$(grep -Fxc -- '--publish' "$HOME/muvm-arguments")" = 2
   grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/muvm-arguments"
   grep -Fx -- '--vram=2048' "$HOME/muvm-arguments"
+  grep -Fx -- '--interactive' "$HOME/muvm-arguments"
 
   # Honor FEX's nested JSON configuration even without a local rootfs image
   rm "$rootfs_directory/test.sqsh"

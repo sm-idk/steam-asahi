@@ -57,7 +57,8 @@ class FexLauncher:
     ) -> NoReturn:
         exec_guest(
             self.muvm_arguments(
-                steam_guest_environment() | self.config["EXTRA_ENVIRONMENT"]
+                steam_guest_environment() | self.config["EXTRA_ENVIRONMENT"],
+                interactive=False,
             )
             + self.fex_arguments(
                 self.config["FEX_STEAM_SCRIPT"],
@@ -152,7 +153,10 @@ class FexLauncher:
             ) from error
 
     def muvm_arguments(
-        self, extra_environment: Mapping[str, str] | None = None
+        self,
+        extra_environment: Mapping[str, str] | None = None,
+        *,
+        interactive: bool = True,
     ) -> list[str]:
         config = self.config
         path = ":".join(
@@ -179,7 +183,9 @@ class FexLauncher:
             environment[name] = str(
                 xdg_home(name, environment=host_environment)
             )
-        return muvm_arguments(config, environment, emulator="fex")
+        return muvm_arguments(
+            config, environment, emulator="fex", interactive=interactive
+        )
 
     def fex_arguments(self, script: str, arguments: list[str]) -> list[str]:
         # FEXBash interprets a command string; remaining argv stays intact

@@ -148,7 +148,10 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   test "$(grep -Fxc -- '--publish' "$TEST_MUVM_OUTPUT")" = 2
   grep -Fx -- '27036/udp' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '27040/tcp' "$TEST_MUVM_OUTPUT"
-  grep -Fx -- '--interactive' "$TEST_MUVM_OUTPUT"
+  if grep -Fqx -- '--interactive' "$TEST_MUVM_OUTPUT"; then
+    printf '%s\n' 'the client launch asked muvm to proxy stdio' >&2
+    exit 1
+  fi
   grep -Fx -- '--steam' "$TEST_MUVM_OUTPUT"
   grep -Fx -- '-cef-force-occlusion' "$TEST_MUVM_OUTPUT"
   grep -Fx -- 'steam://run/250900' "$TEST_MUVM_OUTPUT"
