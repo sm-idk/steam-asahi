@@ -77,11 +77,32 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   steam_directory="$XDG_DATA_HOME/Steam"
   client="$steam_directory/steamrt64/steam"
   rootfs_directory="$XDG_DATA_HOME/fex-emu/RootFS"
-  mkdir -p "$rootfs_directory"
+  mkdir -p "$rootfs_directory" "$HOME/Desktop" "$XDG_DATA_HOME/applications"
   touch "$rootfs_directory/test.sqsh"
   mkdir -p "$steam_directory"
   touch "$steam_directory/.steam-disable-steamrt64-client"
   touch "$steam_directory/.steam-enable-steamrt64-client"
+
+  # Shortcuts of the shape the client writes into the caller's own home, one
+  # executable like a desktop-directory launcher, plus an unrelated entry.
+  cat >"$HOME/Desktop/Test Game.desktop" <<'EOF'
+  [Desktop Entry]
+  Type=Application
+  Name=Test Game
+  Exec=steam steam://rungameid/999999
+  Icon=steam_icon_999999
+  EOF
+  chmod 0755 "$HOME/Desktop/Test Game.desktop"
+  cp "$HOME/Desktop/Test Game.desktop" \
+    "$XDG_DATA_HOME/applications/Test Game.desktop"
+  chmod 0644 "$XDG_DATA_HOME/applications/Test Game.desktop"
+  cat >"$XDG_DATA_HOME/applications/unrelated.desktop" <<'EOF'
+  [Desktop Entry]
+  Type=Application
+  Name=Unrelated
+  Exec=steam-like-thing --flag
+  EOF
+  unrelatedHash=$(sha256sum "$XDG_DATA_HOME/applications/unrelated.desktop")
 
   ${lib.meta.getExe package} \
     'steam://open/games?filter=ready to play' \
@@ -107,7 +128,10 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   test "$(grep -Fxc -- '--publish' "$HOME/steam-arguments")" = 2
   grep -Fx -- '27036/udp' "$HOME/steam-arguments"
   grep -Fx -- '27040/tcp' "$HOME/steam-arguments"
-  grep -Fx -- '--interactive' "$HOME/steam-arguments"
+  if grep -Fqx -- '--interactive' "$HOME/steam-arguments"; then
+    printf '%s\n' 'the Steam launch asked muvm to proxy stdio' >&2
+    exit 1
+  fi
   grep -F -- 'PATH=/run/wrappers/bin:' "$HOME/steam-arguments"
   grep -F -- '/bin/FEXBash' "$HOME/steam-arguments"
   fex_line=$(grep -Fn -- '/bin/FEXBash' "$HOME/steam-arguments" \
@@ -124,6 +148,17 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
     'steam://open/games?filter=ready to play' \
     "$HOME/steam-arguments"
   grep -F -- '-fex-steam.sh' "$HOME/steam-arguments"
+
+  desktopEntry="$HOME/Desktop/Test Game.desktop"
+  menuEntry="$XDG_DATA_HOME/applications/Test Game.desktop"
+  grep -Fx 'Exec=steam-asahi steam://rungameid/999999' "$desktopEntry"
+  grep -Fx 'Exec=steam-asahi steam://rungameid/999999' "$menuEntry"
+  grep -Fx Icon=steam_icon_999999 "$desktopEntry"
+  test "$(grep -Fxc X-SteamAsahi-Managed=true "$desktopEntry")" = 1
+  test "$(stat -c %a "$desktopEntry")" = 755
+  test "$(stat -c %a "$menuEntry")" = 644
+  test "$(sha256sum "$XDG_DATA_HOME/applications/unrelated.desktop")" = \
+    "$unrelatedHash"
 
   # Preserve self-updates while restoring the selected beta channel
   printf '%s\n' preserved > "$client"
@@ -165,6 +200,7 @@ runCommand "steam-asahi-launcher-test" { nativeBuildInputs = [ unzip ]; } ''
   test "$(grep -Fxc -- '--publish' "$HOME/muvm-arguments")" = 2
   grep -Fx -- '--cpu-list=0,1,4,5' "$HOME/muvm-arguments"
   grep -Fx -- '--vram=2048' "$HOME/muvm-arguments"
+  grep -Fx -- '--interactive' "$HOME/muvm-arguments"
 
   # Honor FEX's nested JSON configuration even without a local rootfs image
   rm "$rootfs_directory/test.sqsh"

@@ -18,6 +18,7 @@ type EnvironmentName = Annotated[
 
 
 class LauncherConfiguration(TypedDict):
+    LAUNCHER_COMMAND: NonemptyArgument
     MUVM: NonemptyArgument
     INIT_SCRIPT: NonemptyArgument
     YAD: NonemptyArgument

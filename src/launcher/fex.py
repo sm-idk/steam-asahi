@@ -25,6 +25,7 @@ from common import (
 )
 from configuration import FexConfiguration
 from environment import xdg_home
+from shortcuts import repair_fex_shortcuts, start_shortcut_watcher
 
 FEX_BASH_COMMAND = 'exec /bin/bash "$@"'
 ROOTFS_IMAGE_SUFFIXES = frozenset({".ero", ".img", ".sqsh"})
@@ -57,7 +58,8 @@ class FexLauncher:
     ) -> NoReturn:
         exec_guest(
             self.muvm_arguments(
-                steam_guest_environment() | self.config["EXTRA_ENVIRONMENT"]
+                steam_guest_environment() | self.config["EXTRA_ENVIRONMENT"],
+                interactive=False,
             )
             + self.fex_arguments(
                 self.config["FEX_STEAM_SCRIPT"],
@@ -152,7 +154,10 @@ class FexLauncher:
             ) from error
 
     def muvm_arguments(
-        self, extra_environment: Mapping[str, str] | None = None
+        self,
+        extra_environment: Mapping[str, str] | None = None,
+        *,
+        interactive: bool = True,
     ) -> list[str]:
         config = self.config
         path = ":".join(
@@ -179,7 +184,9 @@ class FexLauncher:
             environment[name] = str(
                 xdg_home(name, environment=host_environment)
             )
-        return muvm_arguments(config, environment, emulator="fex")
+        return muvm_arguments(
+            config, environment, emulator="fex", interactive=interactive
+        )
 
     def fex_arguments(self, script: str, arguments: list[str]) -> list[str]:
         # FEXBash interprets a command string; remaining argv stays intact
@@ -240,5 +247,14 @@ class FexLauncher:
         )
         self.install_client_bootstrap()
         self.configure_steam_state()
+        environment = os.environ | steam_environment
+        start_shortcut_watcher(
+            lambda: repair_fex_shortcuts(
+                self.home,
+                xdg_home("XDG_DATA_HOME", environment=environment),
+                self.config["LAUNCHER_COMMAND"],
+            ),
+            self.lock_descriptor,
+        )
         print("Launching 64-bit Steam beta via muvm + FEX...")
         self.run_steam(arguments)

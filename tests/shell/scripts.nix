@@ -410,6 +410,9 @@ writeShellApplication {
       local launcher_root="''${TEST_ROOT}/launcher"
       local home="''${launcher_root}/home with spaces"
       local output="''${launcher_root}/muvm-arguments"
+      local runtime_directory="''${launcher_root}/runtime"
+      local applications="''${home}/data/applications"
+      local exported="''${applications}/steam-asahi-Test Game.desktop"
       local steam_home="''${home}/data/steam-asahi-arm64-home"
       local steam_directory="''${steam_home}/.local/share/Steam"
       local compatibility_directory=\
@@ -434,8 +437,28 @@ writeShellApplication {
       mkdir -p -- \
         "''${launcher_root}/bootstrap" \
         "''${launcher_root}/host-libs" \
+        "''${runtime_directory}" \
+        "''${applications}" \
+        "''${steam_home}/Desktop" \
         "''${steam_directory}/steamapps/common/Test Proton" \
         "''${steam_directory}/steamapps/common/Test Runtime"
+      cat >"''${steam_home}/Desktop/Test Game.desktop" <<'EOF'
+    [Desktop Entry]
+    Type=Application
+    Name=Test Game
+    Exec=steam steam://rungameid/999999
+    EOF
+      chmod 0755 -- "''${steam_home}/Desktop/Test Game.desktop"
+      cat >"''${exported}" <<'EOF'
+    [Desktop Entry]
+    Type=Application
+    Name=Test Game
+    Exec=steam-asahi steam://rungameid/999999
+    X-SteamAsahi-Managed=true
+    EOF
+      chmod 0600 -- "''${exported}"
+      cp -- "''${exported}" "''${applications}/steam-asahi-Removed Game.desktop"
+      touch -- "''${applications}/steam-asahi-Unowned.desktop"
       touch -- "''${executable_files[@]}" "''${metadata_files[@]}"
       chmod +x -- "''${executable_files[@]}"
       printf '#!%s\n' "''${TEST_SH}" >"''${launcher_root}/configurator"
@@ -457,6 +480,8 @@ writeShellApplication {
       [[ -f "''${TEST_MUVM_OUTPUT}.yad-pid" ]] || exit 99
     fi
     if [[ -n "''${TEST_MUVM_HOLD_FILE:-}" ]]; then
+      exec 9>"''${XDG_RUNTIME_DIR}/muvm.lock"
+      flock --exclusive 9
       touch -- "''${TEST_MUVM_HOLD_FILE}.ready"
       while [[ -e "''${TEST_MUVM_HOLD_FILE}" ]]; do
         sleep 0.05
@@ -485,6 +510,7 @@ writeShellApplication {
           HOME="''${home}" \
           HOST_LIBRARIES="''${launcher_root}/host-libs" \
           INIT_SCRIPT=/init-script \
+          LAUNCHER_COMMAND=steam-asahi \
           MUVM="''${launcher_root}/muvm" \
           PROTON_DIRECTORY='Test Proton' \
           PROTON_CONFIGURATOR="''${launcher_root}/configurator" \
@@ -499,6 +525,7 @@ writeShellApplication {
           TEST_MUVM_OUTPUT="''${output}" \
           TOOL_MANIFEST="''${launcher_root}/toolmanifest.vdf" \
           XDG_DATA_HOME="''${home}/data" \
+          XDG_RUNTIME_DIR="''${runtime_directory}" \
           YAD="''${launcher_root}/yad" \
           python3 -I -B \
             "''${REPOSITORY_ROOT}/tests/shell/launcher/run.py" \
@@ -528,6 +555,16 @@ writeShellApplication {
       assert_file_contains_line \
         "''${configurator_output}" "''${FORCE_PROTON_APP_ID}"
       assert_file_contains_line "''${configurator_output}" proton_test
+
+      assert_file_contains_line \
+        "''${exported}" 'Exec=steam-asahi steam://rungameid/999999'
+      assert_file_contains_line "''${exported}" X-SteamAsahi-Managed=true
+      assert_equal 755 "$(stat -c %a -- "''${exported}")" \
+        'a newer export is repaired to the mode of the client entry'
+      [[ ! -e "''${applications}/steam-asahi-Removed Game.desktop" ]] ||
+        fail 'a stale exported entry survived the export'
+      [[ -f "''${applications}/steam-asahi-Unowned.desktop" ]] ||
+        fail 'the export removed an unmarked entry sharing its prefix'
 
       LC_TIME=C ENV=/host/environment BASH_ENV=/host/environment \
         run_test_launcher 'argument with spaces' '*'
@@ -564,6 +601,13 @@ writeShellApplication {
         'ERROR: Close Steam before changing a compatibility-tool mapping' \
         "''${launcher_root}/lock-error" >/dev/null \
         || fail 'the lock conflict did not explain how to proceed'
+
+      run_test_launcher steam://rungameid/999999 </dev/null
+      assert_file_contains_line "''${output}" '--forward'
+      assert_file_contains_line "''${output}" 'steam://rungameid/999999'
+      if grep -Eqx -- '--steam|--interactive' "''${output}"; then
+        fail 'the shortcut restarted Steam or asked muvm to proxy stdio'
+      fi
       rm -f -- "''${hold_file}"
       wait "''${running_pid}"
 

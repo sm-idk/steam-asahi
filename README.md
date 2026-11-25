@@ -177,6 +177,17 @@ For direct flake or overlay use, `steam-asahi` and the default flake package
 select ARM64. Select `steam-asahi-x64` explicitly for x86/FEX. The explicitly
 named `steam-asahi-arm64` package remains available.
 
+## Game shortcuts
+
+Game shortcuts created in Steam become usable on the host within a few seconds.
+On ARM64, Steam writes them inside its isolated home. The launcher copies them
+and their artwork to the host's XDG data directory and removes its copied
+entries when their originals are deleted. On x86/FEX, it updates the shortcuts
+in place.
+
+A shortcut opened while Steam Asahi is running on the same backend reaches
+the existing client.
+
 ## Troubleshooting
 
 - **Waiting for network at login:** a known Steam client regression can affect
