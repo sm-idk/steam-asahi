@@ -54,11 +54,25 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
   # and import an x86 login without sharing any mutable Steam directories.
   mkdir -p \
     "$clientDirectory" \
+    "$isolatedHome/Desktop" \
+    "$isolatedHome/.local/share/icons/hicolor/64x64/apps" \
     "$protonDirectory" \
     "$runtimeDirectory" \
     "$sourceDataHome/Steam/config" \
     "$sourceHome/.steam" \
     "$XDG_CONFIG_HOME/pulse"
+  # A shortcut of the shape the client generates, naming a command that only
+  # exists inside the microVM.
+  cat >"$isolatedHome/Desktop/Test Game.desktop" <<'EOF'
+  [Desktop Entry]
+  Type=Application
+  Name=Test Game
+  Exec=steam steam://rungameid/999999
+  Icon=steam_icon_999999
+  EOF
+  chmod 0755 "$isolatedHome/Desktop/Test Game.desktop"
+  printf '%s\n' shortcut-icon \
+    >"$isolatedHome/.local/share/icons/hicolor/64x64/apps/steam_icon_999999.png"
   touch \
     "$clientDirectory/pre-existing-file" \
     "$protonDirectory/proton" \
@@ -138,6 +152,14 @@ runCommand "steam-asahi-arm64-launcher-test" { } ''
     "$steamDirectory/config/config.vdf.steam-asahi-backup"
   test "$(grep -Fc '"250900"' \
     "$steamDirectory/config/config.vdf")" = 1
+
+  exportedEntry="$sourceDataHome/applications/steam-asahi-Test Game.desktop"
+  grep -Fx 'Exec=steam-asahi steam://rungameid/999999' "$exportedEntry"
+  grep -Fx Icon=steam_icon_999999 "$exportedEntry"
+  grep -Fx X-SteamAsahi-Managed=true "$exportedEntry"
+  test "$(stat -c %a "$exportedEntry")" = 755
+  grep -Fx shortcut-icon \
+    "$sourceDataHome/icons/hicolor/64x64/apps/steam_icon_999999.png"
 
   grep -Fx "$isolatedHome" "$TEST_MUVM_OUTPUT.home"
   grep -Fx "$isolatedHome/.local/share" "$TEST_MUVM_OUTPUT.data-home"

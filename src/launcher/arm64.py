@@ -28,6 +28,7 @@ from common import (
 )
 from configuration import Arm64Configuration
 from environment import isolated_home_environment, xdg_home
+from shortcuts import start_shortcut_watcher, sync_arm64_shortcuts
 
 
 # The guest repairs Valve's helper and FFmpeg library before launch. Bootstrap
@@ -261,6 +262,16 @@ class Arm64Launcher:
         if import_login:
             self.import_login_state()
         self.install_proton_integration()
+        guest_data = self.home / ".local/share"
+        if self.source_data_home.resolve() != guest_data.resolve():
+            start_shortcut_watcher(
+                lambda: sync_arm64_shortcuts(
+                    self.home,
+                    self.source_data_home,
+                    self.config["LAUNCHER_COMMAND"],
+                ),
+                self.lock_descriptor,
+            )
         if app_id is not None:
             if not self.proton_payloads_installed() or not executable(
                 self.compatibility / "steam-asahi-proton"

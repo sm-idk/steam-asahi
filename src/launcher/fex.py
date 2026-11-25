@@ -25,6 +25,7 @@ from common import (
 )
 from configuration import FexConfiguration
 from environment import xdg_home
+from shortcuts import repair_fex_shortcuts, start_shortcut_watcher
 
 FEX_BASH_COMMAND = 'exec /bin/bash "$@"'
 ROOTFS_IMAGE_SUFFIXES = frozenset({".ero", ".img", ".sqsh"})
@@ -246,5 +247,14 @@ class FexLauncher:
         )
         self.install_client_bootstrap()
         self.configure_steam_state()
+        environment = os.environ | steam_environment
+        start_shortcut_watcher(
+            lambda: repair_fex_shortcuts(
+                self.home,
+                xdg_home("XDG_DATA_HOME", environment=environment),
+                self.config["LAUNCHER_COMMAND"],
+            ),
+            self.lock_descriptor,
+        )
         print("Launching 64-bit Steam beta via muvm + FEX...")
         self.run_steam(arguments)
