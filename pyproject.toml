@@ -18,14 +18,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-portal = ["pygobject==3.58.0"]
+portal = ["pygobject==3.58.1"]
 
 [dependency-groups]
 dev = [
   "packaging==26.3",
   "ruff==0.17.4",
   "tomlkit==0.15.2",
-  "ty==0.0.98",
+  "ty==0.0.99",
 ]
 
 [tool.uv]

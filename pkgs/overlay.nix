@@ -8,12 +8,6 @@ final: prev:
     upstream = prev.fex;
   };
   libkrun = import ./libkrun/override.nix {
-    inherit (final)
-      lib
-      fetchFromGitHub
-      rustPlatform
-      nix-update-script
-      ;
     upstream = prev.libkrun;
   };
   libkrunfw = import ./libkrunfw/override.nix {
