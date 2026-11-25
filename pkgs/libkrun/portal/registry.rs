@@ -79,38 +79,26 @@ impl State {
     }
 
     fn revoke_owner(&mut self, owner: u64) {
-        let tokens: Vec<_> = self
+        for (_, entry) in self
             .entries
-            .iter()
-            .filter_map(|(token, entry)| {
-                (entry.owner == owner).then_some(*token)
-            })
-            .collect();
-        for token in tokens {
-            self.revoke(&token);
+            .extract_if(.., |_, entry| entry.owner == owner)
+        {
+            entry.stop();
         }
     }
 
     fn expire(&mut self) {
         let now = Instant::now();
-        let tokens: Vec<_> = self
-            .entries
-            .iter()
-            .filter_map(|(token, entry)| {
-                entry
-                    .expires
-                    .filter(|deadline| *deadline <= now)
-                    .map(|_| *token)
-            })
-            .collect();
-        for token in tokens {
-            self.revoke(&token);
+        for (_, entry) in self.entries.extract_if(.., |_, entry| {
+            entry.expires.is_some_and(|deadline| deadline <= now)
+        }) {
+            entry.stop();
         }
     }
 
     fn stop(&mut self) {
         self.live = false;
-        for (_, entry) in std::mem::take(&mut self.entries) {
+        for entry in std::mem::take(&mut self.entries).into_values() {
             entry.stop();
         }
     }
